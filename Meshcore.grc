@@ -1,0 +1,1070 @@
+options:
+  parameters:
+    author: MeshCore
+    catch_exceptions: 'True'
+    category: '[GRC Examples]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: RTL-SDR MeshCore RX 869.618 MHz
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: meshcore_rx
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: MeshCore RX
+    window_size: (1000,1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: RfGain
+  id: variable_qtgui_range
+  parameters:
+    comment: ''
+    gui_hint: ''
+    label: ''
+    min_len: '200'
+    orient: QtCore.Qt.Horizontal
+    rangeType: float
+    start: '20'
+    step: '1'
+    stop: '50'
+    value: '40'
+    widget: counter_slider
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [504, 28.0]
+    rotation: 0
+    state: enabled
+- name: bandwith
+  id: variable
+  parameters:
+    comment: ''
+    value: '62500'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [216, 84.0]
+    rotation: 0
+    state: enabled
+- name: center_freq
+  id: variable
+  parameters:
+    comment: ''
+    value: '869618000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [328, 20.0]
+    rotation: 0
+    state: enabled
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: ''
+    value: '250000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [216, 12.0]
+    rotation: 0
+    state: enabled
+- name: epy_block_0
+  id: epy_block
+  parameters:
+    _source_code: "import csv\nimport os\nimport sys\nimport struct\nfrom gnuradio\
+      \ import gr\nimport pmt\n\n\n# -------------------------------------------------------------\n\
+      # CSV-export av mottagna Advert-paket (en unik rad per nod)\n# -------------------------------------------------------------\n\
+      \nCSV_FILENAME = \"mapAdvert.csv\"\nCSV_HEADER = [\n    \"NodeName\",\n    \"\
+      Latitude\",\n    \"Longitude\",\n    \"Nodtyp\",\n    \"LastNodHash\",\n   \
+      \ \"SecondLastNodHash\",\n    \"HashCount\",\n    \"PublicKey\",\n]\n\n\ndef\
+      \ _script_dir():\n    \"\"\"\n    Ta reda p\xE5 mappen d\xE4r .grc-filen (och\
+      \ den genererade\n    meshcore_rx.py) ligger.\n\n    OBS: __file__ finns INTE\
+      \ definierat h\xE4r, eftersom GNU Radio\n    Companion k\xF6r embedded Python-block\
+      \ via exec() ist\xE4llet f\xF6r\n    en vanlig modulimport. Anv\xE4nd d\xE4\
+      rf\xF6r sys.argv[0], som pekar\n    p\xE5 den toppniv\xE5fil (meshcore_rx.py)\
+      \ som faktiskt startades\n    med \"python meshcore_rx.py\" / GRC:s Execute-knapp,\
+      \ och som\n    ligger i samma mapp som .grc-filen.\n    \"\"\"\n    try:\n \
+      \       return os.path.dirname(os.path.abspath(__file__))\n    except NameError:\n\
+      \        pass\n\n    try:\n        argv0 = sys.argv[0]\n        if argv0:\n\
+      \            return os.path.dirname(os.path.abspath(argv0))\n    except Exception:\n\
+      \        pass\n\n    return os.getcwd()\n\n\n# -------------------------------------------------------------\n\
+      # MeshCore header-f\xE4lt (src/Packet.h i meshcore-dev/MeshCore)\n# Headerbyte:\
+      \ 0bVVPPPPRR\n#   bit 0-1 : route type\n#   bit 2-5 : payload type\n#   bit\
+      \ 6-7 : version\n# -------------------------------------------------------------\n\
+      \nROUTE_TYPE_TRANSPORT_FLOOD = 0x00\nROUTE_TYPE_FLOOD = 0x01\nROUTE_TYPE_DIRECT\
+      \ = 0x02\nROUTE_TYPE_TRANSPORT_DIRECT = 0x03\n\nROUTE_TYPE_NAMES = {\n    ROUTE_TYPE_TRANSPORT_FLOOD:\
+      \ \"TRANSPORT_FLOOD\",\n    ROUTE_TYPE_FLOOD: \"FLOOD\",\n    ROUTE_TYPE_DIRECT:\
+      \ \"DIRECT\",\n    ROUTE_TYPE_TRANSPORT_DIRECT: \"TRANSPORT_DIRECT\",\n}\n\n\
+      PAYLOAD_TYPE_REQ = 0x00\nPAYLOAD_TYPE_RESPONSE = 0x01\nPAYLOAD_TYPE_TXT_MSG\
+      \ = 0x02\nPAYLOAD_TYPE_ACK = 0x03\nPAYLOAD_TYPE_ADVERT = 0x04\nPAYLOAD_TYPE_GRP_TXT\
+      \ = 0x05\nPAYLOAD_TYPE_GRP_DATA = 0x06\nPAYLOAD_TYPE_ANON_REQ = 0x07\nPAYLOAD_TYPE_PATH\
+      \ = 0x08\nPAYLOAD_TYPE_TRACE = 0x09\nPAYLOAD_TYPE_MULTIPART = 0x0A\nPAYLOAD_TYPE_CONTROL\
+      \ = 0x0B\nPAYLOAD_TYPE_RAW_CUSTOM = 0x0F\n\nPAYLOAD_TYPE_NAMES = {\n    PAYLOAD_TYPE_REQ:\
+      \ \"REQ\",\n    PAYLOAD_TYPE_RESPONSE: \"RESPONSE\",\n    PAYLOAD_TYPE_TXT_MSG:\
+      \ \"TXT_MSG\",\n    PAYLOAD_TYPE_ACK: \"ACK\",\n    PAYLOAD_TYPE_ADVERT: \"\
+      ADVERT\",\n    PAYLOAD_TYPE_GRP_TXT: \"GRP_TXT\",\n    PAYLOAD_TYPE_GRP_DATA:\
+      \ \"GRP_DATA\",\n    PAYLOAD_TYPE_ANON_REQ: \"ANON_REQ\",\n    PAYLOAD_TYPE_PATH:\
+      \ \"PATH\",\n    PAYLOAD_TYPE_TRACE: \"TRACE\",\n    PAYLOAD_TYPE_MULTIPART:\
+      \ \"MULTIPART\",\n    PAYLOAD_TYPE_CONTROL: \"CONTROL\",\n    PAYLOAD_TYPE_RAW_CUSTOM:\
+      \ \"RAW_CUSTOM\",\n}\n\n# -------------------------------------------------------------\n\
+      # Advert appdata-flaggor (docs/payloads.md)\n# -------------------------------------------------------------\n\
+      \nADV_TYPE_MASK = 0x0F          # l\xE5ga 4 bitarna: nodtyp (enum, ej bitmask)\n\
+      ADV_TYPE_NAMES = {\n    0x01: \"chat node\",\n    0x02: \"repeater\",\n    0x03:\
+      \ \"room server\",\n    0x04: \"sensor\",\n}\n\nADV_FLAG_HAS_LOCATION = 0x10\n\
+      ADV_FLAG_HAS_FEATURE1 = 0x20\nADV_FLAG_HAS_FEATURE2 = 0x40\nADV_FLAG_HAS_NAME\
+      \ = 0x80\n\n\nclass blk(gr.basic_block):\n    \"\"\"\n    MeshCore paketdekoder\
+      \ (Advert, Request/Response/TxtMsg/Path,\n    Ack, Group Txt/Data, Anon Request,\
+      \ Control)\n    \"\"\"\n\n    def __init__(self):\n        gr.basic_block.__init__(\n\
+      \            self,\n            name=\"MeshCore Decoder\",\n            in_sig=None,\n\
+      \            out_sig=None\n        )\n\n        self.message_port_register_in(pmt.intern(\"\
+      in\"))\n        self.set_msg_handler(\n            pmt.intern(\"in\"),\n   \
+      \         self.handle_msg\n        )\n\n        self.message_port_register_out(pmt.intern(\"\
+      out\"))\n\n        # Nod-hash (1 byte) -> nodnamn, byggs upp allteftersom\n\
+      \        # vi ser Advert-paket. Anv\xE4nds f\xF6r att sl\xE5 upp\n        #\
+      \ avs\xE4ndare/mottagare i krypterade paket (Request,\n        # Response, TxtMsg,\
+      \ Path).\n        self.known_nodes = {}\n\n        # CSV-export: en unik rad\
+      \ per nod (nyckel = publik nyckel\n        # i hex). self.csv_path s\xE4tts\
+      \ INTE h\xE4r - se\n        # _ensure_csv_ready() nedan f\xF6r varf\xF6r.\n\
+      \        self.csv_path = None\n        self.advert_rows = {}\n        self._csv_ready\
+      \ = False\n\n    # ---------------------------------------------------------\n\
+      \    # Lat initiering av CSV-s\xF6kv\xE4g/-mapp.\n    #\n    # VIKTIGT: detta\
+      \ f\xE5r INTE g\xF6ras i __init__(). GNU Radio\n    # Companion instansierar\
+      \ embedded Python-block redan vid\n    # designtid (n\xE4r du \xF6ppnar/redigerar\
+      \ .grc-filen) genom att\n    # exec():a kodrutans inneh\xE5ll direkt - inte\
+      \ genom att\n    # importera sj\xE4lva filen. I det l\xE4get:\n    #   - finns\
+      \ __file__ inte definierat\n    #   - pekar sys.argv[0]/cwd p\xE5 GRC:s egen\
+      \ installations-\n    #     mapp (t.ex. radioconda\\Library\\bin), d\xE4r man\
+      \ oftast\n    #     INTE har skrivr\xE4ttigheter\n    # Att skapa mappar/filer\
+      \ i __init__ kraschar d\xE4rf\xF6r\n    # blockets instansiering redan n\xE4\
+      r du \xF6ppnar flowgraphen,\n    # l\xE5ngt innan den faktiskt k\xF6rs.\n  \
+      \  #\n    # Genom att skjuta upp detta till f\xF6rsta riktiga\n    # handle_msg-anrop\
+      \ k\xF6rs koden ist\xE4llet i den process som\n    # faktiskt startas via \"\
+      python meshcore_rx.py\" (d\xE4r\n    # meshcore_rx_epy_block_0 laddas med en\
+      \ vanlig import), och\n    # d\xE5 \xE4r __file__ korrekt satt till s\xF6kv\xE4\
+      gen bredvid\n    # .grc-filen.\n    # ---------------------------------------------------------\n\
+      \    def _ensure_csv_ready(self):\n\n        if self._csv_ready:\n         \
+      \   return\n\n        self._csv_ready = True  # f\xF6rs\xF6k bara en g\xE5ng\n\
+      \n        try:\n            script_dir = _script_dir()\n            output_dir\
+      \ = os.path.join(script_dir, \"output\")\n            os.makedirs(output_dir,\
+      \ exist_ok=True)\n\n            self.csv_path = os.path.join(output_dir, CSV_FILENAME)\n\
+      \            self._load_csv()\n\n        except Exception as e:\n          \
+      \  print(\n                \"Kunde inte f\xF6rbereda mapAdvert.csv (CSV-export\
+      \ \"\n                \"avst\xE4ngd f\xF6r denna k\xF6rning):\", repr(e)\n \
+      \           )\n            self.csv_path = None\n\n    # ---------------------------------------------------------\n\
+      \    # L\xE4s in befintlig mapAdvert.csv (om den finns) vid start\n    # ---------------------------------------------------------\n\
+      \    def _load_csv(self):\n\n        if not self.csv_path or not os.path.exists(self.csv_path):\n\
+      \            return\n\n        try:\n            with open(self.csv_path, \"\
+      r\", newline=\"\", encoding=\"utf-8\") as f:\n                reader = csv.DictReader(f)\n\
+      \                for row in reader:\n                    pubkey = row.get(\"\
+      PublicKey\", \"\")\n                    if pubkey:\n                       \
+      \ self.advert_rows[pubkey] = row\n            print(\n                \"L\xE4\
+      ste in\", len(self.advert_rows),\n                \"befintliga noder fr\xE5\
+      n\", self.csv_path\n            )\n        except Exception as e:\n        \
+      \    print(\"Kunde inte l\xE4sa\", self.csv_path, \":\", repr(e))\n\n    # ---------------------------------------------------------\n\
+      \    # Skriv om hela mapAdvert.csv med alla k\xE4nda noder\n    # (en unik rad\
+      \ per publik nyckel)\n    # ---------------------------------------------------------\n\
+      \    def _save_csv(self):\n\n        if not self.csv_path:\n            return\n\
+      \n        try:\n            with open(self.csv_path, \"w\", newline=\"\", encoding=\"\
+      utf-8\") as f:\n                writer = csv.DictWriter(f, fieldnames=CSV_HEADER)\n\
+      \                writer.writeheader()\n                for row in sorted(\n\
+      \                    self.advert_rows.values(),\n                    key=lambda\
+      \ r: r.get(\"NodeName\", \"\")\n                ):\n                    writer.writerow(row)\n\
+      \        except Exception as e:\n            print(\"Kunde inte skriva\", self.csv_path,\
+      \ \":\", repr(e))\n\n    # ---------------------------------------------------------\n\
+      \    # L\xE4s ut den r\xE5a payloaden ur den inkommande PMT:n\n    # ---------------------------------------------------------\n\
+      \    def _extract_bytes(self, msg):\n\n        if pmt.is_u8vector(msg):\n  \
+      \          return bytes(pmt.u8vector_elements(msg))\n\n        if pmt.is_blob(msg):\n\
+      \            return bytes(pmt.blob_data(msg))\n\n        if pmt.is_symbol(msg):\n\
+      \n            # Viktigt:\n            # LoRa-blocket skickar bin\xE4ra bytes\
+      \ som en PMT\n            # \"symbol\". pmt.symbol_to_string() kraschar p\xE5\
+      \ detta\n            # eftersom den g\xF6r en STRIKT UTF-8-avkodning i\n   \
+      \         # pybind11-lagret - och LoRa-payloads \xE4r r\xE5 bin\xE4rdata,\n\
+      \            # inte text, s\xE5 n\xE4stan varje paket inneh\xE5ller ogiltiga\n\
+      \            # UTF-8-sekvenser.\n            #\n            # Workaround: g\xE5\
+      \ via PMT:s bin\xE4ra serialisering\n            # (pmt.serialize_str), som\
+      \ returnerar rena 'bytes'\n            # utan n\xE5gon UTF-8-tvingning, och\
+      \ plocka ut r\xE5bytesen\n            # manuellt ur PMT-serieformatet:\n   \
+      \         #   [1 byte tagg][2 byte l\xE4ngd, big-endian][data]\n           \
+      \ # Taggen f\xF6r en symbol i PMT-serieformatet \xE4r 0x02.\n            raw\
+      \ = pmt.serialize_str(msg)\n\n            if len(raw) < 3 or raw[0] != 0x02:\n\
+      \                print(\n                    \"Ov\xE4ntat PMT-serieformat, f\xF6\
+      rsta byte:\",\n                    raw[0:1].hex() if raw else \"(tomt)\"\n \
+      \               )\n                return None\n\n            length = (raw[1]\
+      \ << 8) | raw[2]\n            data = raw[3:3 + length]\n\n            if len(data)\
+      \ != length:\n                print(\n                    \"Serialiserad l\xE4\
+      ngd st\xE4mmer inte:\",\n                    \"f\xF6rv\xE4ntade\", length,\n\
+      \                    \"fick\", len(data)\n                )\n              \
+      \  return None\n\n            return data\n\n        print(\"Ok\xE4nd PMT-typ:\"\
+      )\n        print(pmt.write_string(msg))\n        return None\n\n    # ---------------------------------------------------------\n\
+      \    # Sl\xE5 upp ett nod-hash mot k\xE4nda nodnamn (om vi sett dess\n    #\
+      \ Advert tidigare)\n    # ---------------------------------------------------------\n\
+      \    def _fmt_hash(self, node_hash):\n        name = self.known_nodes.get(node_hash)\n\
+      \        if name:\n            return \"%02x (%s)\" % (node_hash, name)\n  \
+      \      return \"%02x (ok\xE4nd nod)\" % node_hash\n\n    # ---------------------------------------------------------\n\
+      \    # Advert\n    # ---------------------------------------------------------\n\
+      \    def _handle_advert(self, payload, hops):\n\n        # Public key(32) +\
+      \ timestamp(4) + signature(64)\n        # + appdata flags(1) = 101 byte minimum\n\
+      \        if len(payload) < 101:\n            print(\n                \"F\xF6\
+      r kort f\xF6r MeshCore Advert-payload:\",\n                len(payload)\n  \
+      \          )\n            return\n\n        public_key = payload[0:32]\n   \
+      \     node_hash = public_key[0]\n\n        timestamp = struct.unpack(\"<I\"\
+      , payload[32:36])[0]\n        signature = payload[36:100]\n\n        appdata\
+      \ = payload[100:]\n        flags = appdata[0]\n\n        node_type = ADV_TYPE_NAMES.get(\n\
+      \            flags & ADV_TYPE_MASK, \"ok\xE4nd/ingen\"\n        )\n\n      \
+      \  p = 1\n        latitude = None\n        longitude = None\n\n        if flags\
+      \ & ADV_FLAG_HAS_LOCATION:\n            if len(appdata) < p + 8:\n         \
+      \       print(\"Appdata f\xF6r kort f\xF6r lat/long\")\n                return\n\
+      \            lat_raw = struct.unpack(\"<i\", appdata[p:p + 4])[0]\n        \
+      \    lon_raw = struct.unpack(\"<i\", appdata[p + 4:p + 8])[0]\n            #\
+      \ Enligt spec: decimalgrader * 1 000 000, som int32\n            latitude =\
+      \ lat_raw / 1_000_000.0\n            longitude = lon_raw / 1_000_000.0\n   \
+      \         p += 8\n\n        if flags & ADV_FLAG_HAS_FEATURE1:\n            p\
+      \ += 2  # reserverat f\xF6r framtida bruk\n\n        if flags & ADV_FLAG_HAS_FEATURE2:\n\
+      \            p += 2  # reserverat f\xF6r framtida bruk\n\n        node_name\
+      \ = None\n        if flags & ADV_FLAG_HAS_NAME:\n            name_bytes = appdata[p:].rstrip(b\"\
+      \\x00\")\n            node_name = name_bytes.decode(\"utf-8\", errors=\"replace\"\
+      )\n\n        # Kom ih\xE5g noden f\xF6r framtida uppslag\n        if node_name:\n\
+      \            self.known_nodes[node_hash] = node_name\n\n        # -------------------------------------------------\n\
+      \        # CSV: en unik rad per nod (nyckel = publik nyckel)\n        # -------------------------------------------------\n\
+      \n        last_hop = hops[-1] if hops else \"\"\n        second_last_hop = hops[-2]\
+      \ if len(hops) >= 2 else \"\"\n\n        csv_row = {\n            \"NodeName\"\
+      : node_name if node_name else \"\",\n            \"Latitude\": (\n         \
+      \       \"%.6f\" % latitude if latitude is not None else \"\"\n            ),\n\
+      \            \"Longitude\": (\n                \"%.6f\" % longitude if longitude\
+      \ is not None else \"\"\n            ),\n            \"Nodtyp\": node_type,\n\
+      \            \"LastNodHash\": last_hop,\n            \"SecondLastNodHash\":\
+      \ second_last_hop,\n            \"HashCount\": len(hops),\n            \"PublicKey\"\
+      : public_key.hex(),\n        }\n\n        self.advert_rows[public_key.hex()]\
+      \ = csv_row\n        self._save_csv()\n\n        print()\n        print(\"================================\"\
+      )\n        print(\"       MESHCORE ADVERT\")\n        print(\"================================\"\
+      )\n\n        print(\"Node Name       :\", node_name if node_name else \"(inget\
+      \ namn i paketet)\")\n        print(\"Nod-hash        : %02x\" % node_hash)\n\
+      \        print(\"Nodtyp          :\", node_type)\n\n        if hops:\n     \
+      \       print(\"Kommer fr\xE5n nod-hash (senaste hopp): %s\" % hops[-1])\n \
+      \           print(\"Fullst\xE4ndig v\xE4g (hopp)             :\", \" -> \".join(hops))\n\
+      \        else:\n            print(\"Kommer fr\xE5n     : direkt (0 hopp, ingen\
+      \ repeater)\")\n\n        print(\"Public Key      :\", public_key.hex())\n \
+      \       print(\"Timestamp       :\", timestamp)\n        print(\"App Flags \
+      \      : 0x%02X\" % flags)\n\n        if latitude is not None:\n           \
+      \ print(\"Latitude        :\", latitude)\n            print(\"Longitude    \
+      \   :\", longitude)\n        else:\n            print(\"Latitude/Long   : (ingen\
+      \ platsinfo i paketet)\")\n\n        print(\"================================\"\
+      )\n        if self.csv_path:\n            print(\"CSV uppdaterad  :\", self.csv_path)\n\
+      \n        if node_name:\n            self.message_port_pub(\n              \
+      \  pmt.intern(\"out\"),\n                pmt.intern(node_name)\n           \
+      \ )\n\n    # ---------------------------------------------------------\n   \
+      \ # Request / Response / TxtMsg / (Returned) Path\n    # Delar samma kuvert:\n\
+      \    #   dest_hash(1) + src_hash(1) + cipher_mac(2) + ciphertext\n    # Inneh\xE5\
+      llet (ciphertext) \xE4r krypterat och kan inte l\xE4sas\n    # h\xE4r - vi kan\
+      \ bara visa vem som pratar med vem.\n    # ---------------------------------------------------------\n\
+      \    def _handle_enveloped(self, payload, payload_name):\n\n        if len(payload)\
+      \ < 4:\n            print(\"F\xF6r kort f\xF6r %s-kuvert:\" % payload_name,\
+      \ len(payload))\n            return\n\n        dest_hash = payload[0]\n    \
+      \    src_hash = payload[1]\n        cipher_mac = payload[2:4]\n        ciphertext\
+      \ = payload[4:]\n\n        print()\n        print(\"================================\"\
+      )\n        print(\"       MESHCORE %s\" % payload_name)\n        print(\"================================\"\
+      )\n        print(\"Till (dest_hash)  :\", self._fmt_hash(dest_hash))\n     \
+      \   print(\"Fr\xE5n (src_hash)   :\", self._fmt_hash(src_hash))\n        print(\"\
+      Cipher MAC        :\", cipher_mac.hex())\n        print(\"Ciphertext-l\xE4ngd\
+      \  :\", len(ciphertext), \"byte\")\n        print(\"(Inneh\xE5llet \xE4r krypterat\
+      \ - kan inte l\xE4sas h\xE4r)\")\n        print(\"================================\"\
+      )\n\n    # ---------------------------------------------------------\n    #\
+      \ Ack\n    # ---------------------------------------------------------\n   \
+      \ def _handle_ack(self, payload):\n\n        if len(payload) < 4:\n        \
+      \    print(\"F\xF6r kort f\xF6r ACK:\", len(payload))\n            return\n\n\
+      \        checksum = struct.unpack(\"<I\", payload[0:4])[0]\n\n        print()\n\
+      \        print(\"=== MESHCORE ACK ===\")\n        print(\"Checksum: 0x%08X\"\
+      \ % checksum)\n\n    # ---------------------------------------------------------\n\
+      \    # Group Text / Group Datagram\n    # channel_hash(1) + cipher_mac(2) +\
+      \ ciphertext\n    # ---------------------------------------------------------\n\
+      \    def _handle_group(self, payload, payload_name):\n\n        if len(payload)\
+      \ < 3:\n            print(\"F\xF6r kort f\xF6r %s:\" % payload_name, len(payload))\n\
+      \            return\n\n        channel_hash = payload[0]\n        cipher_mac\
+      \ = payload[1:3]\n        ciphertext = payload[3:]\n\n        print()\n    \
+      \    print(\"=== MESHCORE %s ===\" % payload_name)\n        print(\"Channel\
+      \ hash      : %02x\" % channel_hash)\n        print(\"Cipher MAC        :\"\
+      , cipher_mac.hex())\n        print(\"Ciphertext-l\xE4ngd  :\", len(ciphertext),\
+      \ \"byte\")\n        print(\"(Inneh\xE5llet \xE4r krypterat - kan inte l\xE4\
+      sas h\xE4r)\")\n\n    # ---------------------------------------------------------\n\
+      \    # Anonymous Request\n    # dest_hash(1) + public_key(32) + cipher_mac(2)\
+      \ + ciphertext\n    # ---------------------------------------------------------\n\
+      \    def _handle_anon_req(self, payload):\n\n        if len(payload) < 35:\n\
+      \            print(\"F\xF6r kort f\xF6r ANON_REQ:\", len(payload))\n       \
+      \     return\n\n        dest_hash = payload[0]\n        sender_pubkey = payload[1:33]\n\
+      \        cipher_mac = payload[33:35]\n        ciphertext = payload[35:]\n\n\
+      \        print()\n        print(\"=== MESHCORE ANON_REQ ===\")\n        print(\"\
+      Till (dest_hash)   :\", self._fmt_hash(dest_hash))\n        print(\"Avs\xE4\
+      ndarens pubkey :\", sender_pubkey.hex())\n        print(\"Cipher MAC       \
+      \  :\", cipher_mac.hex())\n        print(\"Ciphertext-l\xE4ngd   :\", len(ciphertext),\
+      \ \"byte\")\n        print(\"(Inneh\xE5llet \xE4r krypterat - kan inte l\xE4\
+      sas h\xE4r)\")\n\n    # ---------------------------------------------------------\n\
+      \    # Control data\n    # flags(1, \xF6vre 4 bitar = sub_type) + data\n   \
+      \ # ---------------------------------------------------------\n    def _handle_control(self,\
+      \ payload):\n\n        if len(payload) < 1:\n            print(\"F\xF6r kort\
+      \ f\xF6r CONTROL:\", len(payload))\n            return\n\n        flags = payload[0]\n\
+      \        sub_type = (flags >> 4) & 0x0F\n        data = payload[1:]\n\n    \
+      \    print()\n        print(\"=== MESHCORE CONTROL ===\")\n        print(\"\
+      Sub-type : 0x%X\" % sub_type)\n        print(\"Data     :\", data.hex())\n\n\
+      \    # ---------------------------------------------------------\n    # Huvudhanterare\n\
+      \    # ---------------------------------------------------------\n    def handle_msg(self,\
+      \ msg):\n\n        print()\n        print(\"=== MESHCORE PACKET ===\")\n\n \
+      \       self._ensure_csv_ready()\n\n        try:\n\n            data = self._extract_bytes(msg)\n\
+      \n            if data is None:\n                return\n\n            # -------------------------------------------------\n\
+      \            # Debug\n            # -------------------------------------------------\n\
+      \n            print(\"Length:\", len(data))\n            print(\"HEX:\", data.hex(\"\
+      \ \"))\n\n            if len(data) < 2:\n                print(\"F\xF6r kort\
+      \ f\xF6r att ens inneh\xE5lla header + path_len\")\n                return\n\
+      \n            # -------------------------------------------------\n        \
+      \    # Header\n            # -------------------------------------------------\n\
+      \n            header = data[0]\n\n            version = (header >> 6) & 0x03\n\
+      \            payload_type = (header >> 2) & 0x0F\n            route_type = header\
+      \ & 0x03\n\n            route_name = ROUTE_TYPE_NAMES.get(\n               \
+      \ route_type, \"OK\xC4ND(0x%X)\" % route_type\n            )\n            payload_name\
+      \ = PAYLOAD_TYPE_NAMES.get(\n                payload_type, \"OK\xC4ND(0x%X)\"\
+      \ % payload_type\n            )\n\n            print(\"Header:       0x%02X\"\
+      \ % header)\n            print(\"Version:      \", version)\n            print(\"\
+      Route type:   \", route_name)\n            print(\"Payload type: \", payload_name)\n\
+      \n            offset = 1\n\n            # -------------------------------------------------\n\
+      \            # Transport codes (bara f\xF6r *_TRANSPORT_* route types)\n   \
+      \         # -------------------------------------------------\n\n          \
+      \  has_transport = route_type in (\n                ROUTE_TYPE_TRANSPORT_FLOOD,\n\
+      \                ROUTE_TYPE_TRANSPORT_DIRECT,\n            )\n\n           \
+      \ if has_transport:\n\n                if len(data) < offset + 4:\n        \
+      \            print(\"F\xF6r kort f\xF6r transport codes\")\n               \
+      \     return\n\n                transport_codes = data[offset:offset + 4]\n\
+      \                offset += 4\n\n                print(\"Transport codes:\",\
+      \ transport_codes.hex())\n\n            # -------------------------------------------------\n\
+      \            # Path length + path (nod-hashar f\xF6r varje hopp)\n         \
+      \   # -------------------------------------------------\n\n            if len(data)\
+      \ < offset + 1:\n                print(\"F\xF6r kort f\xF6r path_len-byten\"\
+      )\n                return\n\n            path_len_byte = data[offset]\n    \
+      \        offset += 1\n\n            hash_size = ((path_len_byte >> 6) & 0x03)\
+      \ + 1\n            hash_count = path_len_byte & 0x3F\n            path_bytes_len\
+      \ = hash_size * hash_count\n\n            print(\n                \"Path_len\
+      \ byte: 0x%02X  \"\n                \"(hash_size=%d byte/hopp, hash_count=%d\
+      \ hopp)\"\n                % (path_len_byte, hash_size, hash_count)\n      \
+      \      )\n\n            if len(data) < offset + path_bytes_len:\n          \
+      \      print(\"F\xF6r kort f\xF6r path-f\xE4ltet\")\n                return\n\
+      \n            path_bytes = data[offset:offset + path_bytes_len]\n          \
+      \  offset += path_bytes_len\n\n            hops = [\n                path_bytes[i:i\
+      \ + hash_size].hex()\n                for i in range(0, path_bytes_len, hash_size)\n\
+      \            ]\n\n            if hops:\n                print(\n           \
+      \         \"Path (hopp, \xE4ldst -> n\xE4rmast):\",\n                    \"\
+      \ -> \".join(hops)\n                )\n                print(\"Mottaget via\
+      \ (senaste hoppet):\", hops[-1])\n            else:\n                print(\"\
+      Path: tom (mottaget direkt, 0 hopp)\")\n\n            # -------------------------------------------------\n\
+      \            # Payload - avkodas olika beroende p\xE5 typ\n            # -------------------------------------------------\n\
+      \n            payload = data[offset:]\n\n            if payload_type == PAYLOAD_TYPE_ADVERT:\n\
+      \                self._handle_advert(payload, hops)\n\n            elif payload_type\
+      \ in (\n                PAYLOAD_TYPE_REQ,\n                PAYLOAD_TYPE_RESPONSE,\n\
+      \                PAYLOAD_TYPE_TXT_MSG,\n                PAYLOAD_TYPE_PATH,\n\
+      \            ):\n                self._handle_enveloped(payload, payload_name)\n\
+      \n            elif payload_type == PAYLOAD_TYPE_ACK:\n                self._handle_ack(payload)\n\
+      \n            elif payload_type in (\n                PAYLOAD_TYPE_GRP_TXT,\n\
+      \                PAYLOAD_TYPE_GRP_DATA,\n            ):\n                self._handle_group(payload,\
+      \ payload_name)\n\n            elif payload_type == PAYLOAD_TYPE_ANON_REQ:\n\
+      \                self._handle_anon_req(payload)\n\n            elif payload_type\
+      \ == PAYLOAD_TYPE_CONTROL:\n                self._handle_control(payload)\n\n\
+      \            else:\n                print(\n                    \"Payload type\
+      \ %s st\xF6ds inte f\xF6r detaljerad \"\n                    \"parsning \xE4\
+      nnu.\" % payload_name\n                )\n\n        except Exception as e:\n\
+      \n            print(\n                \"MeshCore decoder error:\",\n       \
+      \         repr(e)\n            )\n"
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: ('MeshCore Decoder', 'blk', [], [('in', 'message', 1)], [('out', 'message',
+      1)], '\n    MeshCore paketdekoder (Advert, Request/Response/TxtMsg/Path,\n    Ack,
+      Group Txt/Data, Anon Request, Control)\n    ', [])
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [992, 16.0]
+    rotation: 0
+    state: enabled
+- name: lora_rx_0
+  id: lora_rx
+  parameters:
+    affinity: ''
+    alias: ''
+    bw: bandwith
+    comment: ''
+    cr: '4'
+    has_crc: 'True'
+    impl_head: 'False'
+    ldro: '2'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    pay_len: '255'
+    print_rx: '[False,False]'
+    samp_rate: samp_rate
+    sf: '8'
+    soft_decoding: 'False'
+    sync_word: '[0x12]'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [696, 124.0]
+    rotation: 0
+    state: enabled
+- name: lora_sdr_crc_verif_0
+  id: lora_sdr_crc_verif
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    output_crc_check: 'False'
+    print_rx_msg: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [856, 544.0]
+    rotation: 0
+    state: disabled
+- name: lora_sdr_header_decoder_0
+  id: lora_sdr_header_decoder
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    cr: '4'
+    has_crc: 'True'
+    impl_head: '0'
+    ldro: '2'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    pay_len: '255'
+    print_header: 'True'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [872, 284.0]
+    rotation: 0
+    state: disabled
+- name: msg_debug
+  id: blocks_message_debug
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    en_uvec: 'False'
+    log_level: debug
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1280, 88.0]
+    rotation: 0
+    state: disabled
+- name: qtgui_edit_box_msg_0
+  id: qtgui_edit_box_msg
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    gui_hint: ''
+    is_pair: 'False'
+    is_static: 'True'
+    key: ''
+    label: Header Frame Info
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: string
+    value: ''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1160, 428.0]
+    rotation: 0
+    state: disabled
+- name: qtgui_edit_box_msg_0_0
+  id: qtgui_edit_box_msg
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    gui_hint: ''
+    is_pair: 'False'
+    is_static: 'True'
+    key: ''
+    label: CRC Verif msg
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: string
+    value: ''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1160, 556.0]
+    rotation: 0
+    state: disabled
+- name: qtgui_edit_box_msg_0_1
+  id: qtgui_edit_box_msg
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    gui_hint: ''
+    is_pair: 'False'
+    is_static: 'True'
+    key: ''
+    label: LoRa RX Out
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    type: string
+    value: ''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1160, 284.0]
+    rotation: 0
+    state: disabled
+- name: qtgui_freq_sink_x_0
+  id: qtgui_freq_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    average: '1.0'
+    axislabels: 'True'
+    bw: bandwith
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: ''
+    ctrlpanel: 'False'
+    fc: center_freq
+    fftsize: '512'
+    freqhalf: 'True'
+    grid: 'True'
+    gui_hint: ''
+    label: Relative Gain
+    label1: LoRa
+    label10: ''''''
+    label2: ''''''
+    label3: ''''''
+    label4: ''''''
+    label5: ''''''
+    label6: ''''''
+    label7: ''''''
+    label8: ''''''
+    label9: ''''''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: MeshCore FFT
+    nconnections: '1'
+    norm_window: 'False'
+    showports: 'False'
+    tr_chan: '0'
+    tr_level: '1'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_tag: ''
+    type: complex
+    units: dB
+    update_time: '0.1'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    wintype: window.WIN_BLACKMAN_hARRIS
+    ymax: '10'
+    ymin: '-120'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [608, 324.0]
+    rotation: 0
+    state: enabled
+- name: qtgui_waterfall_sink_x_0
+  id: qtgui_waterfall_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    axislabels: 'True'
+    bw: bandwith
+    color1: '0'
+    color10: '0'
+    color2: '0'
+    color3: '0'
+    color4: '0'
+    color5: '0'
+    color6: '0'
+    color7: '0'
+    color8: '0'
+    color9: '0'
+    comment: ''
+    fc: center_freq
+    fftsize: '512'
+    freqhalf: 'True'
+    grid: 'False'
+    gui_hint: ''
+    int_max: '10'
+    int_min: '-140'
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '""'
+    nconnections: '1'
+    showports: 'False'
+    type: complex
+    update_time: '0.1'
+    wintype: window.WIN_BLACKMAN_hARRIS
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [600, 476.0]
+    rotation: 0
+    state: enabled
+- name: rtl_source
+  id: osmosdr_source
+  parameters:
+    affinity: ''
+    alias: ''
+    ant0: ''
+    ant1: ''
+    ant10: ''
+    ant11: ''
+    ant12: ''
+    ant13: ''
+    ant14: ''
+    ant15: ''
+    ant16: ''
+    ant17: ''
+    ant18: ''
+    ant19: ''
+    ant2: ''
+    ant20: ''
+    ant21: ''
+    ant22: ''
+    ant23: ''
+    ant24: ''
+    ant25: ''
+    ant26: ''
+    ant27: ''
+    ant28: ''
+    ant29: ''
+    ant3: ''
+    ant30: ''
+    ant31: ''
+    ant4: ''
+    ant5: ''
+    ant6: ''
+    ant7: ''
+    ant8: ''
+    ant9: ''
+    args: rtl=0
+    bb_gain0: '20'
+    bb_gain1: '20'
+    bb_gain10: '20'
+    bb_gain11: '20'
+    bb_gain12: '20'
+    bb_gain13: '20'
+    bb_gain14: '20'
+    bb_gain15: '20'
+    bb_gain16: '20'
+    bb_gain17: '20'
+    bb_gain18: '20'
+    bb_gain19: '20'
+    bb_gain2: '20'
+    bb_gain20: '20'
+    bb_gain21: '20'
+    bb_gain22: '20'
+    bb_gain23: '20'
+    bb_gain24: '20'
+    bb_gain25: '20'
+    bb_gain26: '20'
+    bb_gain27: '20'
+    bb_gain28: '20'
+    bb_gain29: '20'
+    bb_gain3: '20'
+    bb_gain30: '20'
+    bb_gain31: '20'
+    bb_gain4: '20'
+    bb_gain5: '20'
+    bb_gain6: '20'
+    bb_gain7: '20'
+    bb_gain8: '20'
+    bb_gain9: '20'
+    bw0: '0'
+    bw1: '0'
+    bw10: '0'
+    bw11: '0'
+    bw12: '0'
+    bw13: '0'
+    bw14: '0'
+    bw15: '0'
+    bw16: '0'
+    bw17: '0'
+    bw18: '0'
+    bw19: '0'
+    bw2: '0'
+    bw20: '0'
+    bw21: '0'
+    bw22: '0'
+    bw23: '0'
+    bw24: '0'
+    bw25: '0'
+    bw26: '0'
+    bw27: '0'
+    bw28: '0'
+    bw29: '0'
+    bw3: '0'
+    bw30: '0'
+    bw31: '0'
+    bw4: '0'
+    bw5: '0'
+    bw6: '0'
+    bw7: '0'
+    bw8: '0'
+    bw9: '0'
+    clock_source0: ''
+    clock_source1: ''
+    clock_source2: ''
+    clock_source3: ''
+    clock_source4: ''
+    clock_source5: ''
+    clock_source6: ''
+    clock_source7: ''
+    comment: ''
+    corr0: '-1'
+    corr1: '0'
+    corr10: '0'
+    corr11: '0'
+    corr12: '0'
+    corr13: '0'
+    corr14: '0'
+    corr15: '0'
+    corr16: '0'
+    corr17: '0'
+    corr18: '0'
+    corr19: '0'
+    corr2: '0'
+    corr20: '0'
+    corr21: '0'
+    corr22: '0'
+    corr23: '0'
+    corr24: '0'
+    corr25: '0'
+    corr26: '0'
+    corr27: '0'
+    corr28: '0'
+    corr29: '0'
+    corr3: '0'
+    corr30: '0'
+    corr31: '0'
+    corr4: '0'
+    corr5: '0'
+    corr6: '0'
+    corr7: '0'
+    corr8: '0'
+    corr9: '0'
+    dc_offset_mode0: '0'
+    dc_offset_mode1: '0'
+    dc_offset_mode10: '0'
+    dc_offset_mode11: '0'
+    dc_offset_mode12: '0'
+    dc_offset_mode13: '0'
+    dc_offset_mode14: '0'
+    dc_offset_mode15: '0'
+    dc_offset_mode16: '0'
+    dc_offset_mode17: '0'
+    dc_offset_mode18: '0'
+    dc_offset_mode19: '0'
+    dc_offset_mode2: '0'
+    dc_offset_mode20: '0'
+    dc_offset_mode21: '0'
+    dc_offset_mode22: '0'
+    dc_offset_mode23: '0'
+    dc_offset_mode24: '0'
+    dc_offset_mode25: '0'
+    dc_offset_mode26: '0'
+    dc_offset_mode27: '0'
+    dc_offset_mode28: '0'
+    dc_offset_mode29: '0'
+    dc_offset_mode3: '0'
+    dc_offset_mode30: '0'
+    dc_offset_mode31: '0'
+    dc_offset_mode4: '0'
+    dc_offset_mode5: '0'
+    dc_offset_mode6: '0'
+    dc_offset_mode7: '0'
+    dc_offset_mode8: '0'
+    dc_offset_mode9: '0'
+    freq0: center_freq
+    freq1: 100e6
+    freq10: 100e6
+    freq11: 100e6
+    freq12: 100e6
+    freq13: 100e6
+    freq14: 100e6
+    freq15: 100e6
+    freq16: 100e6
+    freq17: 100e6
+    freq18: 100e6
+    freq19: 100e6
+    freq2: 100e6
+    freq20: 100e6
+    freq21: 100e6
+    freq22: 100e6
+    freq23: 100e6
+    freq24: 100e6
+    freq25: 100e6
+    freq26: 100e6
+    freq27: 100e6
+    freq28: 100e6
+    freq29: 100e6
+    freq3: 100e6
+    freq30: 100e6
+    freq31: 100e6
+    freq4: 100e6
+    freq5: 100e6
+    freq6: 100e6
+    freq7: 100e6
+    freq8: 100e6
+    freq9: 100e6
+    gain0: RfGain
+    gain1: '10'
+    gain10: '10'
+    gain11: '10'
+    gain12: '10'
+    gain13: '10'
+    gain14: '10'
+    gain15: '10'
+    gain16: '10'
+    gain17: '10'
+    gain18: '10'
+    gain19: '10'
+    gain2: '10'
+    gain20: '10'
+    gain21: '10'
+    gain22: '10'
+    gain23: '10'
+    gain24: '10'
+    gain25: '10'
+    gain26: '10'
+    gain27: '10'
+    gain28: '10'
+    gain29: '10'
+    gain3: '10'
+    gain30: '10'
+    gain31: '10'
+    gain4: '10'
+    gain5: '10'
+    gain6: '10'
+    gain7: '10'
+    gain8: '10'
+    gain9: '10'
+    gain_mode0: 'False'
+    gain_mode1: 'False'
+    gain_mode10: 'False'
+    gain_mode11: 'False'
+    gain_mode12: 'False'
+    gain_mode13: 'False'
+    gain_mode14: 'False'
+    gain_mode15: 'False'
+    gain_mode16: 'False'
+    gain_mode17: 'False'
+    gain_mode18: 'False'
+    gain_mode19: 'False'
+    gain_mode2: 'False'
+    gain_mode20: 'False'
+    gain_mode21: 'False'
+    gain_mode22: 'False'
+    gain_mode23: 'False'
+    gain_mode24: 'False'
+    gain_mode25: 'False'
+    gain_mode26: 'False'
+    gain_mode27: 'False'
+    gain_mode28: 'False'
+    gain_mode29: 'False'
+    gain_mode3: 'False'
+    gain_mode30: 'False'
+    gain_mode31: 'False'
+    gain_mode4: 'False'
+    gain_mode5: 'False'
+    gain_mode6: 'False'
+    gain_mode7: 'False'
+    gain_mode8: 'False'
+    gain_mode9: 'False'
+    if_gain0: '20'
+    if_gain1: '20'
+    if_gain10: '20'
+    if_gain11: '20'
+    if_gain12: '20'
+    if_gain13: '20'
+    if_gain14: '20'
+    if_gain15: '20'
+    if_gain16: '20'
+    if_gain17: '20'
+    if_gain18: '20'
+    if_gain19: '20'
+    if_gain2: '20'
+    if_gain20: '20'
+    if_gain21: '20'
+    if_gain22: '20'
+    if_gain23: '20'
+    if_gain24: '20'
+    if_gain25: '20'
+    if_gain26: '20'
+    if_gain27: '20'
+    if_gain28: '20'
+    if_gain29: '20'
+    if_gain3: '20'
+    if_gain30: '20'
+    if_gain31: '20'
+    if_gain4: '20'
+    if_gain5: '20'
+    if_gain6: '20'
+    if_gain7: '20'
+    if_gain8: '20'
+    if_gain9: '20'
+    iq_balance_mode0: '0'
+    iq_balance_mode1: '0'
+    iq_balance_mode10: '0'
+    iq_balance_mode11: '0'
+    iq_balance_mode12: '0'
+    iq_balance_mode13: '0'
+    iq_balance_mode14: '0'
+    iq_balance_mode15: '0'
+    iq_balance_mode16: '0'
+    iq_balance_mode17: '0'
+    iq_balance_mode18: '0'
+    iq_balance_mode19: '0'
+    iq_balance_mode2: '0'
+    iq_balance_mode20: '0'
+    iq_balance_mode21: '0'
+    iq_balance_mode22: '0'
+    iq_balance_mode23: '0'
+    iq_balance_mode24: '0'
+    iq_balance_mode25: '0'
+    iq_balance_mode26: '0'
+    iq_balance_mode27: '0'
+    iq_balance_mode28: '0'
+    iq_balance_mode29: '0'
+    iq_balance_mode3: '0'
+    iq_balance_mode30: '0'
+    iq_balance_mode31: '0'
+    iq_balance_mode4: '0'
+    iq_balance_mode5: '0'
+    iq_balance_mode6: '0'
+    iq_balance_mode7: '0'
+    iq_balance_mode8: '0'
+    iq_balance_mode9: '0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    nchan: '1'
+    num_mboards: '1'
+    sample_rate: samp_rate
+    sync: sync
+    time_source0: ''
+    time_source1: ''
+    time_source2: ''
+    time_source3: ''
+    time_source4: ''
+    time_source5: ''
+    time_source6: ''
+    time_source7: ''
+    type: fc32
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [300, 200]
+    rotation: 0
+    state: enabled
+
+connections:
+- [epy_block_0, out, qtgui_edit_box_msg_0_1, val]
+- [lora_rx_0, '0', lora_sdr_header_decoder_0, '0']
+- [lora_rx_0, out, epy_block_0, in]
+- [lora_sdr_crc_verif_0, msg, msg_debug, print]
+- [lora_sdr_crc_verif_0, msg, qtgui_edit_box_msg_0_0, val]
+- [lora_sdr_header_decoder_0, '0', lora_sdr_crc_verif_0, '0']
+- [lora_sdr_header_decoder_0, frame_info, msg_debug, print]
+- [lora_sdr_header_decoder_0, frame_info, qtgui_edit_box_msg_0, val]
+- [rtl_source, '0', lora_rx_0, '0']
+- [rtl_source, '0', qtgui_freq_sink_x_0, '0']
+- [rtl_source, '0', qtgui_waterfall_sink_x_0, '0']
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
