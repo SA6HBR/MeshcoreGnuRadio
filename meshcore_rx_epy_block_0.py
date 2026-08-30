@@ -128,6 +128,11 @@ class blk(gr.basic_block):
     """
 
     def __init__(self):
+        print("=" * 40)
+        print("MeshCore RX-dekoder")
+        print("Programmerad av SA6HBR")
+        print("=" * 40)
+
         gr.basic_block.__init__(
             self,
             name="MeshCore Decoder",
