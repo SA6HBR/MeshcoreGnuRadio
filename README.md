@@ -40,7 +40,12 @@ It demodulates the LoRa PHY with [`gr-lora_sdr`](https://github.com/tapparelj/gr
 4. Run in console `C:\ProgramData\radioconda\python.exe -u meshcore_rx.py`.
 5. Decoded packets are printed to the console; every received `ADVERT` is also appended to `output/mapAdvert.csv`, created automatically next to the flowgraph.
 
-### `mapAdvert.csv` columns
+<p align="center">
+  <img src="https://raw.githubusercontent.com/SA6HBR/MeshcoreGnuRadio/refs/heads/main/image/cmd.png" width="45%">  <img src="https://raw.githubusercontent.com/SA6HBR/MeshcoreGnuRadio/refs/heads/main/image/gui.png" width="30%">
+</p>
+
+
+### File `mapAdvert.csv` columns
 
 ```
 Timestamp,NodeName,Latitude,Longitude,Nodtyp,LastNodHash,SecondLastNodHash,HashCount,PublicKey
@@ -61,7 +66,7 @@ One row is appended per received advert (not deduplicated), so the same node wil
 
 ## Dependency licenses
 
-This project itself is licensed under GPL-3.0 (see `LICENSE`). The tools and protocol it depends on are licensed separately, and any redistribution needs to respect those terms too:
+This project itself is licensed under GPL-3.0. The tools and protocol it depends on are licensed separately, and any redistribution needs to respect those terms too:
 
 | Dependency                                                      | License          |
 |-----------------------------------------------------------------| ---------------- |
