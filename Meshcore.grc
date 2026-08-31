@@ -93,24 +93,25 @@ blocks:
 - name: epy_block_0
   id: epy_block
   parameters:
-    _source_code: "import csv\nimport os\nimport sys\nimport struct\nfrom gnuradio\
-      \ import gr\nimport pmt\n\n\n# -------------------------------------------------------------\n\
-      # CSV-export av mottagna Advert-paket (en unik rad per nod)\n# -------------------------------------------------------------\n\
-      \nCSV_FILENAME = \"mapAdvert.csv\"\nCSV_HEADER = [\n    \"NodeName\",\n    \"\
-      Latitude\",\n    \"Longitude\",\n    \"Nodtyp\",\n    \"LastNodHash\",\n   \
-      \ \"SecondLastNodHash\",\n    \"HashCount\",\n    \"PublicKey\",\n]\n\n\ndef\
-      \ _script_dir():\n    \"\"\"\n    Ta reda p\xE5 mappen d\xE4r .grc-filen (och\
-      \ den genererade\n    meshcore_rx.py) ligger.\n\n    OBS: __file__ finns INTE\
-      \ definierat h\xE4r, eftersom GNU Radio\n    Companion k\xF6r embedded Python-block\
-      \ via exec() ist\xE4llet f\xF6r\n    en vanlig modulimport. Anv\xE4nd d\xE4\
-      rf\xF6r sys.argv[0], som pekar\n    p\xE5 den toppniv\xE5fil (meshcore_rx.py)\
-      \ som faktiskt startades\n    med \"python meshcore_rx.py\" / GRC:s Execute-knapp,\
-      \ och som\n    ligger i samma mapp som .grc-filen.\n    \"\"\"\n    try:\n \
-      \       return os.path.dirname(os.path.abspath(__file__))\n    except NameError:\n\
-      \        pass\n\n    try:\n        argv0 = sys.argv[0]\n        if argv0:\n\
-      \            return os.path.dirname(os.path.abspath(argv0))\n    except Exception:\n\
-      \        pass\n\n    return os.getcwd()\n\n\n# -------------------------------------------------------------\n\
-      # MeshCore header-f\xE4lt (src/Packet.h i meshcore-dev/MeshCore)\n# Headerbyte:\
+    _source_code: "import csv\nimport os\nimport sys\nimport struct\nimport datetime\n\
+      from gnuradio import gr\nimport pmt\n\n\n# -------------------------------------------------------------\n\
+      # CSV export of received Advert packets (a log - a new row for\n# every received\
+      \ Advert, not limited to one unique row per node)\n# -------------------------------------------------------------\n\
+      \nCSV_FILENAME = \"mapAdvert.csv\"\nCSV_HEADER = [\n    \"Timestamp\",\n   \
+      \ \"NodeName\",\n    \"Latitude\",\n    \"Longitude\",\n    \"NodeType\",\n\
+      \    \"LastNodeHash\",\n    \"SecondLastNodeHash\",\n    \"HashCount\",\n  \
+      \  \"PublicKey\",\n]\n\n\ndef _script_dir():\n    \"\"\"\n    Figure out the\
+      \ folder where the .grc file (and the generated\n    meshcore_rx.py) lives.\n\
+      \n    NOTE: __file__ is NOT defined here, because GNU Radio\n    Companion runs\
+      \ embedded Python blocks via exec() instead of\n    a normal module import.\
+      \ So fall back to sys.argv[0], which\n    points at the top-level file (meshcore_rx.py)\
+      \ that was\n    actually started with \"python meshcore_rx.py\" / GRC's\n  \
+      \  Execute button, and which lives in the same folder as the\n    .grc file.\n\
+      \    \"\"\"\n    try:\n        return os.path.dirname(os.path.abspath(__file__))\n\
+      \    except NameError:\n        pass\n\n    try:\n        argv0 = sys.argv[0]\n\
+      \        if argv0:\n            return os.path.dirname(os.path.abspath(argv0))\n\
+      \    except Exception:\n        pass\n\n    return os.getcwd()\n\n\n# -------------------------------------------------------------\n\
+      # MeshCore header fields (src/Packet.h in meshcore-dev/MeshCore)\n# Header byte:\
       \ 0bVVPPPPRR\n#   bit 0-1 : route type\n#   bit 2-5 : payload type\n#   bit\
       \ 6-7 : version\n# -------------------------------------------------------------\n\
       \nROUTE_TYPE_TRANSPORT_FLOOD = 0x00\nROUTE_TYPE_FLOOD = 0x01\nROUTE_TYPE_DIRECT\
@@ -129,255 +130,309 @@ blocks:
       \ \"PATH\",\n    PAYLOAD_TYPE_TRACE: \"TRACE\",\n    PAYLOAD_TYPE_MULTIPART:\
       \ \"MULTIPART\",\n    PAYLOAD_TYPE_CONTROL: \"CONTROL\",\n    PAYLOAD_TYPE_RAW_CUSTOM:\
       \ \"RAW_CUSTOM\",\n}\n\n# -------------------------------------------------------------\n\
-      # Advert appdata-flaggor (docs/payloads.md)\n# -------------------------------------------------------------\n\
-      \nADV_TYPE_MASK = 0x0F          # l\xE5ga 4 bitarna: nodtyp (enum, ej bitmask)\n\
+      # Advert appdata flags (docs/payloads.md)\n# -------------------------------------------------------------\n\
+      \nADV_TYPE_MASK = 0x0F          # low 4 bits: node type (enum, not a bitmask)\n\
       ADV_TYPE_NAMES = {\n    0x01: \"chat node\",\n    0x02: \"repeater\",\n    0x03:\
       \ \"room server\",\n    0x04: \"sensor\",\n}\n\nADV_FLAG_HAS_LOCATION = 0x10\n\
       ADV_FLAG_HAS_FEATURE1 = 0x20\nADV_FLAG_HAS_FEATURE2 = 0x40\nADV_FLAG_HAS_NAME\
-      \ = 0x80\n\n\nclass blk(gr.basic_block):\n    \"\"\"\n    MeshCore paketdekoder\
+      \ = 0x80\n\n\nclass blk(gr.basic_block):\n    \"\"\"\n    MeshCore packet decoder\
       \ (Advert, Request/Response/TxtMsg/Path,\n    Ack, Group Txt/Data, Anon Request,\
-      \ Control)\n    \"\"\"\n\n    def __init__(self):\n        gr.basic_block.__init__(\n\
-      \            self,\n            name=\"MeshCore Decoder\",\n            in_sig=None,\n\
+      \ Control)\n    \"\"\"\n\n    def __init__(self):\n        print(\"=\" * 40)\n\
+      \        print(\"MeshCore RX decoder\")\n        print(\"Written by SA6HBR\"\
+      )\n        print(\"=\" * 40)\n\n        gr.basic_block.__init__(\n         \
+      \   self,\n            name=\"MeshCore Decoder\",\n            in_sig=None,\n\
       \            out_sig=None\n        )\n\n        self.message_port_register_in(pmt.intern(\"\
       in\"))\n        self.set_msg_handler(\n            pmt.intern(\"in\"),\n   \
       \         self.handle_msg\n        )\n\n        self.message_port_register_out(pmt.intern(\"\
-      out\"))\n\n        # Nod-hash (1 byte) -> nodnamn, byggs upp allteftersom\n\
-      \        # vi ser Advert-paket. Anv\xE4nds f\xF6r att sl\xE5 upp\n        #\
-      \ avs\xE4ndare/mottagare i krypterade paket (Request,\n        # Response, TxtMsg,\
-      \ Path).\n        self.known_nodes = {}\n\n        # CSV-export: en unik rad\
-      \ per nod (nyckel = publik nyckel\n        # i hex). self.csv_path s\xE4tts\
-      \ INTE h\xE4r - se\n        # _ensure_csv_ready() nedan f\xF6r varf\xF6r.\n\
-      \        self.csv_path = None\n        self.advert_rows = {}\n        self._csv_ready\
-      \ = False\n\n    # ---------------------------------------------------------\n\
-      \    # Lat initiering av CSV-s\xF6kv\xE4g/-mapp.\n    #\n    # VIKTIGT: detta\
-      \ f\xE5r INTE g\xF6ras i __init__(). GNU Radio\n    # Companion instansierar\
-      \ embedded Python-block redan vid\n    # designtid (n\xE4r du \xF6ppnar/redigerar\
-      \ .grc-filen) genom att\n    # exec():a kodrutans inneh\xE5ll direkt - inte\
-      \ genom att\n    # importera sj\xE4lva filen. I det l\xE4get:\n    #   - finns\
-      \ __file__ inte definierat\n    #   - pekar sys.argv[0]/cwd p\xE5 GRC:s egen\
-      \ installations-\n    #     mapp (t.ex. radioconda\\Library\\bin), d\xE4r man\
-      \ oftast\n    #     INTE har skrivr\xE4ttigheter\n    # Att skapa mappar/filer\
-      \ i __init__ kraschar d\xE4rf\xF6r\n    # blockets instansiering redan n\xE4\
-      r du \xF6ppnar flowgraphen,\n    # l\xE5ngt innan den faktiskt k\xF6rs.\n  \
-      \  #\n    # Genom att skjuta upp detta till f\xF6rsta riktiga\n    # handle_msg-anrop\
-      \ k\xF6rs koden ist\xE4llet i den process som\n    # faktiskt startas via \"\
-      python meshcore_rx.py\" (d\xE4r\n    # meshcore_rx_epy_block_0 laddas med en\
-      \ vanlig import), och\n    # d\xE5 \xE4r __file__ korrekt satt till s\xF6kv\xE4\
-      gen bredvid\n    # .grc-filen.\n    # ---------------------------------------------------------\n\
+      out\"))\n\n        # Node-hash (1 byte) -> node name, built up as we see\n \
+      \       # Advert packets. Used to look up senders/recipients in\n        # encrypted\
+      \ packets (Request, Response, TxtMsg, Path).\n        self.known_nodes = {}\n\
+      \n        # Node-hash (1 byte) -> full public key (hex, 32 bytes).\n       \
+      \ # Populated from both Advert and CONTROL/DISCOVER_RESP\n        # (which leaks\
+      \ the full key completely unencrypted).\n        self.known_pubkeys = {}\n\n\
+      \        # CSV export. self.csv_path is NOT set here - see\n        # _ensure_csv_ready()\
+      \ below for why.\n        self.csv_path = None\n        self._csv_ready = False\n\
+      \n    # ---------------------------------------------------------\n    # Lazy\
+      \ setup of the CSV path/folder.\n    #\n    # IMPORTANT: this must NOT be done\
+      \ in __init__(). GNU Radio\n    # Companion already instantiates embedded Python\
+      \ blocks at\n    # design time (when you open/edit the .grc file) by\n    #\
+      \ exec()-ing the code box content directly - not by\n    # importing the file\
+      \ itself. In that context:\n    #   - __file__ is not defined\n    #   - sys.argv[0]/cwd\
+      \ point at GRC's own installation\n    #     folder (e.g. radioconda\\Library\\\
+      bin), where you\n    #     usually do NOT have write permission\n    # Creating\
+      \ folders/files in __init__ therefore crashes the\n    # block's instantiation\
+      \ as soon as you open the flowgraph,\n    # long before it's actually run.\n\
+      \    #\n    # By deferring this to the first real handle_msg call, the\n   \
+      \ # code instead runs inside the process actually started via\n    # \"python\
+      \ meshcore_rx.py\" (where meshcore_rx_epy_block_0 is\n    # loaded with a normal\
+      \ import), and __file__ is then\n    # correctly set to the path next to the\
+      \ .grc file.\n    # ---------------------------------------------------------\n\
       \    def _ensure_csv_ready(self):\n\n        if self._csv_ready:\n         \
-      \   return\n\n        self._csv_ready = True  # f\xF6rs\xF6k bara en g\xE5ng\n\
-      \n        try:\n            script_dir = _script_dir()\n            output_dir\
-      \ = os.path.join(script_dir, \"output\")\n            os.makedirs(output_dir,\
-      \ exist_ok=True)\n\n            self.csv_path = os.path.join(output_dir, CSV_FILENAME)\n\
-      \            self._load_csv()\n\n        except Exception as e:\n          \
-      \  print(\n                \"Kunde inte f\xF6rbereda mapAdvert.csv (CSV-export\
-      \ \"\n                \"avst\xE4ngd f\xF6r denna k\xF6rning):\", repr(e)\n \
-      \           )\n            self.csv_path = None\n\n    # ---------------------------------------------------------\n\
-      \    # L\xE4s in befintlig mapAdvert.csv (om den finns) vid start\n    # ---------------------------------------------------------\n\
-      \    def _load_csv(self):\n\n        if not self.csv_path or not os.path.exists(self.csv_path):\n\
-      \            return\n\n        try:\n            with open(self.csv_path, \"\
-      r\", newline=\"\", encoding=\"utf-8\") as f:\n                reader = csv.DictReader(f)\n\
-      \                for row in reader:\n                    pubkey = row.get(\"\
-      PublicKey\", \"\")\n                    if pubkey:\n                       \
-      \ self.advert_rows[pubkey] = row\n            print(\n                \"L\xE4\
-      ste in\", len(self.advert_rows),\n                \"befintliga noder fr\xE5\
-      n\", self.csv_path\n            )\n        except Exception as e:\n        \
-      \    print(\"Kunde inte l\xE4sa\", self.csv_path, \":\", repr(e))\n\n    # ---------------------------------------------------------\n\
-      \    # Skriv om hela mapAdvert.csv med alla k\xE4nda noder\n    # (en unik rad\
-      \ per publik nyckel)\n    # ---------------------------------------------------------\n\
-      \    def _save_csv(self):\n\n        if not self.csv_path:\n            return\n\
-      \n        try:\n            with open(self.csv_path, \"w\", newline=\"\", encoding=\"\
-      utf-8\") as f:\n                writer = csv.DictWriter(f, fieldnames=CSV_HEADER)\n\
-      \                writer.writeheader()\n                for row in sorted(\n\
-      \                    self.advert_rows.values(),\n                    key=lambda\
-      \ r: r.get(\"NodeName\", \"\")\n                ):\n                    writer.writerow(row)\n\
-      \        except Exception as e:\n            print(\"Kunde inte skriva\", self.csv_path,\
-      \ \":\", repr(e))\n\n    # ---------------------------------------------------------\n\
-      \    # L\xE4s ut den r\xE5a payloaden ur den inkommande PMT:n\n    # ---------------------------------------------------------\n\
+      \   return\n\n        self._csv_ready = True  # only try once\n\n        try:\n\
+      \            script_dir = _script_dir()\n            output_dir = os.path.join(script_dir,\
+      \ \"output\")\n            os.makedirs(output_dir, exist_ok=True)\n\n      \
+      \      self.csv_path = os.path.join(output_dir, CSV_FILENAME)\n\n          \
+      \  # Only write the header row if the file doesn't\n            # already exist\
+      \ (or is empty) - otherwise just keep\n            # appending.\n          \
+      \  need_header = (\n                not os.path.exists(self.csv_path)\n    \
+      \            or os.path.getsize(self.csv_path) == 0\n            )\n       \
+      \     if need_header:\n                with open(self.csv_path, \"w\", newline=\"\
+      \", encoding=\"utf-8\") as f:\n                    csv.writer(f).writerow(CSV_HEADER)\n\
+      \n        except Exception as e:\n            print(\n                \"Could\
+      \ not prepare mapAdvert.csv (CSV export \"\n                \"disabled for this\
+      \ run):\", repr(e)\n            )\n            self.csv_path = None\n\n    #\
+      \ ---------------------------------------------------------\n    # Append a\
+      \ new row to mapAdvert.csv (one row per received\n    # Advert packet - not\
+      \ limited to one unique row per node)\n    # ---------------------------------------------------------\n\
+      \    def _append_csv_row(self, row):\n\n        if not self.csv_path:\n    \
+      \        return\n\n        try:\n            with open(self.csv_path, \"a\"\
+      , newline=\"\", encoding=\"utf-8\") as f:\n                csv.DictWriter(f,\
+      \ fieldnames=CSV_HEADER).writerow(row)\n        except Exception as e:\n   \
+      \         print(\"Could not write to\", self.csv_path, \":\", repr(e))\n\n \
+      \   # ---------------------------------------------------------\n    # Read\
+      \ out the raw payload from the incoming PMT\n    # ---------------------------------------------------------\n\
       \    def _extract_bytes(self, msg):\n\n        if pmt.is_u8vector(msg):\n  \
       \          return bytes(pmt.u8vector_elements(msg))\n\n        if pmt.is_blob(msg):\n\
       \            return bytes(pmt.blob_data(msg))\n\n        if pmt.is_symbol(msg):\n\
-      \n            # Viktigt:\n            # LoRa-blocket skickar bin\xE4ra bytes\
-      \ som en PMT\n            # \"symbol\". pmt.symbol_to_string() kraschar p\xE5\
-      \ detta\n            # eftersom den g\xF6r en STRIKT UTF-8-avkodning i\n   \
-      \         # pybind11-lagret - och LoRa-payloads \xE4r r\xE5 bin\xE4rdata,\n\
-      \            # inte text, s\xE5 n\xE4stan varje paket inneh\xE5ller ogiltiga\n\
-      \            # UTF-8-sekvenser.\n            #\n            # Workaround: g\xE5\
-      \ via PMT:s bin\xE4ra serialisering\n            # (pmt.serialize_str), som\
-      \ returnerar rena 'bytes'\n            # utan n\xE5gon UTF-8-tvingning, och\
-      \ plocka ut r\xE5bytesen\n            # manuellt ur PMT-serieformatet:\n   \
-      \         #   [1 byte tagg][2 byte l\xE4ngd, big-endian][data]\n           \
-      \ # Taggen f\xF6r en symbol i PMT-serieformatet \xE4r 0x02.\n            raw\
-      \ = pmt.serialize_str(msg)\n\n            if len(raw) < 3 or raw[0] != 0x02:\n\
-      \                print(\n                    \"Ov\xE4ntat PMT-serieformat, f\xF6\
-      rsta byte:\",\n                    raw[0:1].hex() if raw else \"(tomt)\"\n \
-      \               )\n                return None\n\n            length = (raw[1]\
-      \ << 8) | raw[2]\n            data = raw[3:3 + length]\n\n            if len(data)\
-      \ != length:\n                print(\n                    \"Serialiserad l\xE4\
-      ngd st\xE4mmer inte:\",\n                    \"f\xF6rv\xE4ntade\", length,\n\
-      \                    \"fick\", len(data)\n                )\n              \
-      \  return None\n\n            return data\n\n        print(\"Ok\xE4nd PMT-typ:\"\
-      )\n        print(pmt.write_string(msg))\n        return None\n\n    # ---------------------------------------------------------\n\
-      \    # Sl\xE5 upp ett nod-hash mot k\xE4nda nodnamn (om vi sett dess\n    #\
-      \ Advert tidigare)\n    # ---------------------------------------------------------\n\
+      \n            # Important:\n            # The LoRa block sends binary bytes\
+      \ as a PMT\n            # \"symbol\". pmt.symbol_to_string() crashes on this\n\
+      \            # because it performs a STRICT UTF-8 decode in the\n          \
+      \  # pybind11 layer - and LoRa payloads are raw binary\n            # data,\
+      \ not text, so almost every packet contains\n            # invalid UTF-8 sequences.\n\
+      \            #\n            # Workaround: go via PMT's binary serialization\n\
+      \            # (pmt.serialize_str), which returns plain 'bytes'\n          \
+      \  # with no UTF-8 enforcement, and manually pick the\n            # raw bytes\
+      \ out of the PMT serialization format:\n            #   [1 byte tag][2 byte\
+      \ length, big-endian][data]\n            # The tag for a symbol in the PMT serialization\n\
+      \            # format is 0x02.\n            raw = pmt.serialize_str(msg)\n\n\
+      \            if len(raw) < 3 or raw[0] != 0x02:\n                print(\n  \
+      \                  \"Unexpected PMT serialization format, first byte:\",\n \
+      \                   raw[0:1].hex() if raw else \"(empty)\"\n               \
+      \ )\n                return None\n\n            length = (raw[1] << 8) | raw[2]\n\
+      \            data = raw[3:3 + length]\n\n            if len(data) != length:\n\
+      \                print(\n                    \"Serialized length mismatch:\"\
+      ,\n                    \"expected\", length,\n                    \"got\", len(data)\n\
+      \                )\n                return None\n\n            return data\n\
+      \n        print(\"Unknown PMT type:\")\n        print(pmt.write_string(msg))\n\
+      \        return None\n\n    # ---------------------------------------------------------\n\
+      \    # Look up a node-hash against known node names/public keys\n    # (if we've\
+      \ seen its Advert or DISCOVER_RESP before)\n    # ---------------------------------------------------------\n\
       \    def _fmt_hash(self, node_hash):\n        name = self.known_nodes.get(node_hash)\n\
       \        if name:\n            return \"%02x (%s)\" % (node_hash, name)\n  \
-      \      return \"%02x (ok\xE4nd nod)\" % node_hash\n\n    # ---------------------------------------------------------\n\
+      \      if node_hash in self.known_pubkeys:\n            return \"%02x (name\
+      \ unknown, but pubkey seen)\" % node_hash\n        return \"%02x (unknown node)\"\
+      \ % node_hash\n\n    # ---------------------------------------------------------\n\
       \    # Advert\n    # ---------------------------------------------------------\n\
       \    def _handle_advert(self, payload, hops):\n\n        # Public key(32) +\
-      \ timestamp(4) + signature(64)\n        # + appdata flags(1) = 101 byte minimum\n\
-      \        if len(payload) < 101:\n            print(\n                \"F\xF6\
-      r kort f\xF6r MeshCore Advert-payload:\",\n                len(payload)\n  \
-      \          )\n            return\n\n        public_key = payload[0:32]\n   \
-      \     node_hash = public_key[0]\n\n        timestamp = struct.unpack(\"<I\"\
-      , payload[32:36])[0]\n        signature = payload[36:100]\n\n        appdata\
-      \ = payload[100:]\n        flags = appdata[0]\n\n        node_type = ADV_TYPE_NAMES.get(\n\
-      \            flags & ADV_TYPE_MASK, \"ok\xE4nd/ingen\"\n        )\n\n      \
-      \  p = 1\n        latitude = None\n        longitude = None\n\n        if flags\
-      \ & ADV_FLAG_HAS_LOCATION:\n            if len(appdata) < p + 8:\n         \
-      \       print(\"Appdata f\xF6r kort f\xF6r lat/long\")\n                return\n\
-      \            lat_raw = struct.unpack(\"<i\", appdata[p:p + 4])[0]\n        \
-      \    lon_raw = struct.unpack(\"<i\", appdata[p + 4:p + 8])[0]\n            #\
-      \ Enligt spec: decimalgrader * 1 000 000, som int32\n            latitude =\
-      \ lat_raw / 1_000_000.0\n            longitude = lon_raw / 1_000_000.0\n   \
-      \         p += 8\n\n        if flags & ADV_FLAG_HAS_FEATURE1:\n            p\
-      \ += 2  # reserverat f\xF6r framtida bruk\n\n        if flags & ADV_FLAG_HAS_FEATURE2:\n\
-      \            p += 2  # reserverat f\xF6r framtida bruk\n\n        node_name\
-      \ = None\n        if flags & ADV_FLAG_HAS_NAME:\n            name_bytes = appdata[p:].rstrip(b\"\
+      \ timestamp(4) + signature(64)\n        # + appdata flags(1) = 101 bytes minimum\n\
+      \        if len(payload) < 101:\n            print(\n                \"Too short\
+      \ for a MeshCore Advert payload:\",\n                len(payload)\n        \
+      \    )\n            return\n\n        public_key = payload[0:32]\n        node_hash\
+      \ = public_key[0]\n\n        timestamp = struct.unpack(\"<I\", payload[32:36])[0]\n\
+      \        signature = payload[36:100]\n\n        appdata = payload[100:]\n  \
+      \      flags = appdata[0]\n\n        node_type = ADV_TYPE_NAMES.get(\n     \
+      \       flags & ADV_TYPE_MASK, \"unknown/none\"\n        )\n\n        p = 1\n\
+      \        latitude = None\n        longitude = None\n\n        if flags & ADV_FLAG_HAS_LOCATION:\n\
+      \            if len(appdata) < p + 8:\n                print(\"Appdata too short\
+      \ for lat/long\")\n                return\n            lat_raw = struct.unpack(\"\
+      <i\", appdata[p:p + 4])[0]\n            lon_raw = struct.unpack(\"<i\", appdata[p\
+      \ + 4:p + 8])[0]\n            # Per spec: decimal degrees * 1,000,000, as int32\n\
+      \            latitude = lat_raw / 1_000_000.0\n            longitude = lon_raw\
+      \ / 1_000_000.0\n            p += 8\n\n        if flags & ADV_FLAG_HAS_FEATURE1:\n\
+      \            p += 2  # reserved for future use\n\n        if flags & ADV_FLAG_HAS_FEATURE2:\n\
+      \            p += 2  # reserved for future use\n\n        node_name = None\n\
+      \        if flags & ADV_FLAG_HAS_NAME:\n            name_bytes = appdata[p:].rstrip(b\"\
       \\x00\")\n            node_name = name_bytes.decode(\"utf-8\", errors=\"replace\"\
-      )\n\n        # Kom ih\xE5g noden f\xF6r framtida uppslag\n        if node_name:\n\
-      \            self.known_nodes[node_hash] = node_name\n\n        # -------------------------------------------------\n\
-      \        # CSV: en unik rad per nod (nyckel = publik nyckel)\n        # -------------------------------------------------\n\
+      )\n\n        # Remember the node for future lookups\n        self.known_pubkeys[node_hash]\
+      \ = public_key.hex()\n        if node_name:\n            self.known_nodes[node_hash]\
+      \ = node_name\n\n        # -------------------------------------------------\n\
+      \        # CSV: a new row per received Advert (log, not\n        # limited to\
+      \ one unique row per node)\n        # -------------------------------------------------\n\
       \n        last_hop = hops[-1] if hops else \"\"\n        second_last_hop = hops[-2]\
-      \ if len(hops) >= 2 else \"\"\n\n        csv_row = {\n            \"NodeName\"\
-      : node_name if node_name else \"\",\n            \"Latitude\": (\n         \
-      \       \"%.6f\" % latitude if latitude is not None else \"\"\n            ),\n\
-      \            \"Longitude\": (\n                \"%.6f\" % longitude if longitude\
-      \ is not None else \"\"\n            ),\n            \"Nodtyp\": node_type,\n\
-      \            \"LastNodHash\": last_hop,\n            \"SecondLastNodHash\":\
-      \ second_last_hop,\n            \"HashCount\": len(hops),\n            \"PublicKey\"\
-      : public_key.hex(),\n        }\n\n        self.advert_rows[public_key.hex()]\
-      \ = csv_row\n        self._save_csv()\n\n        print()\n        print(\"================================\"\
-      )\n        print(\"       MESHCORE ADVERT\")\n        print(\"================================\"\
-      )\n\n        print(\"Node Name       :\", node_name if node_name else \"(inget\
-      \ namn i paketet)\")\n        print(\"Nod-hash        : %02x\" % node_hash)\n\
-      \        print(\"Nodtyp          :\", node_type)\n\n        if hops:\n     \
-      \       print(\"Kommer fr\xE5n nod-hash (senaste hopp): %s\" % hops[-1])\n \
-      \           print(\"Fullst\xE4ndig v\xE4g (hopp)             :\", \" -> \".join(hops))\n\
-      \        else:\n            print(\"Kommer fr\xE5n     : direkt (0 hopp, ingen\
-      \ repeater)\")\n\n        print(\"Public Key      :\", public_key.hex())\n \
-      \       print(\"Timestamp       :\", timestamp)\n        print(\"App Flags \
-      \      : 0x%02X\" % flags)\n\n        if latitude is not None:\n           \
-      \ print(\"Latitude        :\", latitude)\n            print(\"Longitude    \
-      \   :\", longitude)\n        else:\n            print(\"Latitude/Long   : (ingen\
-      \ platsinfo i paketet)\")\n\n        print(\"================================\"\
-      )\n        if self.csv_path:\n            print(\"CSV uppdaterad  :\", self.csv_path)\n\
+      \ if len(hops) >= 2 else \"\"\n\n        # Timestamp = when WE received the\
+      \ packet (system time),\n        # not the advert packet's own internal timestamp\
+      \ field\n        # (printed separately below as \"Timestamp\"). This lets\n\
+      \        # you see exactly when each row in your log came in.\n        received_at\
+      \ = datetime.datetime.now().isoformat(timespec=\"seconds\")\n\n        csv_row\
+      \ = {\n            \"Timestamp\": received_at,\n            \"NodeName\": node_name\
+      \ if node_name else \"\",\n            \"Latitude\": (\n                \"%.6f\"\
+      \ % latitude if latitude is not None else \"\"\n            ),\n           \
+      \ \"Longitude\": (\n                \"%.6f\" % longitude if longitude is not\
+      \ None else \"\"\n            ),\n            \"NodeType\": node_type,\n   \
+      \         \"LastNodeHash\": last_hop,\n            \"SecondLastNodeHash\": second_last_hop,\n\
+      \            \"HashCount\": len(hops),\n            \"PublicKey\": public_key.hex(),\n\
+      \        }\n\n        self._append_csv_row(csv_row)\n\n        print()\n   \
+      \     print(\"================================\")\n        print(\"       MESHCORE\
+      \ ADVERT\")\n        print(\"================================\")\n\n       \
+      \ print(\"Node Name       :\", node_name if node_name else \"(no name in packet)\"\
+      )\n        print(\"Node hash       : %02x\" % node_hash)\n        print(\"Node\
+      \ type       :\", node_type)\n\n        if hops:\n            print(\"From node-hash\
+      \ (last hop) : %s\" % hops[-1])\n            print(\"Full path (hops)      \
+      \    :\", \" -> \".join(hops))\n        else:\n            print(\"Received\
+      \        : directly (0 hops, no repeater)\")\n\n        print(\"Public Key \
+      \     :\", public_key.hex())\n        print(\"Timestamp       :\", timestamp)\n\
+      \        print(\"App Flags       : 0x%02X\" % flags)\n\n        if latitude\
+      \ is not None:\n            print(\"Latitude        :\", latitude)\n       \
+      \     print(\"Longitude       :\", longitude)\n        else:\n            print(\"\
+      Latitude/Long   : (no location info in packet)\")\n\n        print(\"================================\"\
+      )\n        if self.csv_path:\n            print(\"CSV updated     :\", self.csv_path)\n\
       \n        if node_name:\n            self.message_port_pub(\n              \
       \  pmt.intern(\"out\"),\n                pmt.intern(node_name)\n           \
       \ )\n\n    # ---------------------------------------------------------\n   \
-      \ # Request / Response / TxtMsg / (Returned) Path\n    # Delar samma kuvert:\n\
-      \    #   dest_hash(1) + src_hash(1) + cipher_mac(2) + ciphertext\n    # Inneh\xE5\
-      llet (ciphertext) \xE4r krypterat och kan inte l\xE4sas\n    # h\xE4r - vi kan\
-      \ bara visa vem som pratar med vem.\n    # ---------------------------------------------------------\n\
+      \ # Request / Response / TxtMsg / (Returned) Path\n    # Share the same envelope:\n\
+      \    #   dest_hash(1) + src_hash(1) + cipher_mac(2) + ciphertext\n    # The\
+      \ content (ciphertext) is encrypted and cannot be read\n    # here - we can\
+      \ only show who's talking to whom.\n    # ---------------------------------------------------------\n\
       \    def _handle_enveloped(self, payload, payload_name):\n\n        if len(payload)\
-      \ < 4:\n            print(\"F\xF6r kort f\xF6r %s-kuvert:\" % payload_name,\
-      \ len(payload))\n            return\n\n        dest_hash = payload[0]\n    \
-      \    src_hash = payload[1]\n        cipher_mac = payload[2:4]\n        ciphertext\
-      \ = payload[4:]\n\n        print()\n        print(\"================================\"\
-      )\n        print(\"       MESHCORE %s\" % payload_name)\n        print(\"================================\"\
-      )\n        print(\"Till (dest_hash)  :\", self._fmt_hash(dest_hash))\n     \
-      \   print(\"Fr\xE5n (src_hash)   :\", self._fmt_hash(src_hash))\n        print(\"\
-      Cipher MAC        :\", cipher_mac.hex())\n        print(\"Ciphertext-l\xE4ngd\
-      \  :\", len(ciphertext), \"byte\")\n        print(\"(Inneh\xE5llet \xE4r krypterat\
-      \ - kan inte l\xE4sas h\xE4r)\")\n        print(\"================================\"\
+      \ < 4:\n            print(\"Too short for a %s envelope:\" % payload_name, len(payload))\n\
+      \            return\n\n        dest_hash = payload[0]\n        src_hash = payload[1]\n\
+      \        cipher_mac = payload[2:4]\n        ciphertext = payload[4:]\n\n   \
+      \     print()\n        print(\"================================\")\n       \
+      \ print(\"       MESHCORE %s\" % payload_name)\n        print(\"================================\"\
+      )\n        print(\"To (dest_hash)    :\", self._fmt_hash(dest_hash))\n     \
+      \   print(\"From (src_hash)   :\", self._fmt_hash(src_hash))\n        print(\"\
+      Cipher MAC        :\", cipher_mac.hex())\n        print(\"Ciphertext length\
+      \ :\", len(ciphertext), \"bytes\")\n        print(\"(Content is encrypted -\
+      \ cannot be read here)\")\n        print(\"================================\"\
       )\n\n    # ---------------------------------------------------------\n    #\
       \ Ack\n    # ---------------------------------------------------------\n   \
       \ def _handle_ack(self, payload):\n\n        if len(payload) < 4:\n        \
-      \    print(\"F\xF6r kort f\xF6r ACK:\", len(payload))\n            return\n\n\
-      \        checksum = struct.unpack(\"<I\", payload[0:4])[0]\n\n        print()\n\
+      \    print(\"Too short for ACK:\", len(payload))\n            return\n\n   \
+      \     checksum = struct.unpack(\"<I\", payload[0:4])[0]\n\n        print()\n\
       \        print(\"=== MESHCORE ACK ===\")\n        print(\"Checksum: 0x%08X\"\
       \ % checksum)\n\n    # ---------------------------------------------------------\n\
       \    # Group Text / Group Datagram\n    # channel_hash(1) + cipher_mac(2) +\
       \ ciphertext\n    # ---------------------------------------------------------\n\
       \    def _handle_group(self, payload, payload_name):\n\n        if len(payload)\
-      \ < 3:\n            print(\"F\xF6r kort f\xF6r %s:\" % payload_name, len(payload))\n\
+      \ < 3:\n            print(\"Too short for %s:\" % payload_name, len(payload))\n\
       \            return\n\n        channel_hash = payload[0]\n        cipher_mac\
       \ = payload[1:3]\n        ciphertext = payload[3:]\n\n        print()\n    \
       \    print(\"=== MESHCORE %s ===\" % payload_name)\n        print(\"Channel\
       \ hash      : %02x\" % channel_hash)\n        print(\"Cipher MAC        :\"\
-      , cipher_mac.hex())\n        print(\"Ciphertext-l\xE4ngd  :\", len(ciphertext),\
-      \ \"byte\")\n        print(\"(Inneh\xE5llet \xE4r krypterat - kan inte l\xE4\
-      sas h\xE4r)\")\n\n    # ---------------------------------------------------------\n\
-      \    # Anonymous Request\n    # dest_hash(1) + public_key(32) + cipher_mac(2)\
-      \ + ciphertext\n    # ---------------------------------------------------------\n\
-      \    def _handle_anon_req(self, payload):\n\n        if len(payload) < 35:\n\
-      \            print(\"F\xF6r kort f\xF6r ANON_REQ:\", len(payload))\n       \
-      \     return\n\n        dest_hash = payload[0]\n        sender_pubkey = payload[1:33]\n\
-      \        cipher_mac = payload[33:35]\n        ciphertext = payload[35:]\n\n\
-      \        print()\n        print(\"=== MESHCORE ANON_REQ ===\")\n        print(\"\
-      Till (dest_hash)   :\", self._fmt_hash(dest_hash))\n        print(\"Avs\xE4\
-      ndarens pubkey :\", sender_pubkey.hex())\n        print(\"Cipher MAC       \
-      \  :\", cipher_mac.hex())\n        print(\"Ciphertext-l\xE4ngd   :\", len(ciphertext),\
-      \ \"byte\")\n        print(\"(Inneh\xE5llet \xE4r krypterat - kan inte l\xE4\
-      sas h\xE4r)\")\n\n    # ---------------------------------------------------------\n\
-      \    # Control data\n    # flags(1, \xF6vre 4 bitar = sub_type) + data\n   \
-      \ # ---------------------------------------------------------\n    def _handle_control(self,\
-      \ payload):\n\n        if len(payload) < 1:\n            print(\"F\xF6r kort\
-      \ f\xF6r CONTROL:\", len(payload))\n            return\n\n        flags = payload[0]\n\
-      \        sub_type = (flags >> 4) & 0x0F\n        data = payload[1:]\n\n    \
-      \    print()\n        print(\"=== MESHCORE CONTROL ===\")\n        print(\"\
-      Sub-type : 0x%X\" % sub_type)\n        print(\"Data     :\", data.hex())\n\n\
-      \    # ---------------------------------------------------------\n    # Huvudhanterare\n\
-      \    # ---------------------------------------------------------\n    def handle_msg(self,\
-      \ msg):\n\n        print()\n        print(\"=== MESHCORE PACKET ===\")\n\n \
-      \       self._ensure_csv_ready()\n\n        try:\n\n            data = self._extract_bytes(msg)\n\
-      \n            if data is None:\n                return\n\n            # -------------------------------------------------\n\
+      , cipher_mac.hex())\n        print(\"Ciphertext length :\", len(ciphertext),\
+      \ \"bytes\")\n        print(\"(Content is encrypted - cannot be read here)\"\
+      )\n\n    # ---------------------------------------------------------\n    #\
+      \ Anonymous Request\n    # dest_hash(1) + public_key(32) + cipher_mac(2) + ciphertext\n\
+      \    # ---------------------------------------------------------\n    def _handle_anon_req(self,\
+      \ payload):\n\n        if len(payload) < 35:\n            print(\"Too short\
+      \ for ANON_REQ:\", len(payload))\n            return\n\n        dest_hash =\
+      \ payload[0]\n        sender_pubkey = payload[1:33]\n        cipher_mac = payload[33:35]\n\
+      \        ciphertext = payload[35:]\n\n        print()\n        print(\"=== MESHCORE\
+      \ ANON_REQ ===\")\n        print(\"To (dest_hash)     :\", self._fmt_hash(dest_hash))\n\
+      \        print(\"Sender's pubkey    :\", sender_pubkey.hex())\n        print(\"\
+      Cipher MAC         :\", cipher_mac.hex())\n        print(\"Ciphertext length\
+      \  :\", len(ciphertext), \"bytes\")\n        print(\"(Content is encrypted -\
+      \ cannot be read here)\")\n\n    # ---------------------------------------------------------\n\
+      \    # Control data (always cleartext)\n    # flags(1, top 4 bits = sub_type)\
+      \ + data\n    #\n    # Sub-type 0x8 = DISCOVER_REQ, 0x9 = DISCOVER_RESP\n  \
+      \  # (confirmed against official documentation + verified\n    # byte-for-byte\
+      \ against real captured packets).\n    # ---------------------------------------------------------\n\
+      \    CONTROL_SUBTYPE_DISCOVER_REQ = 0x8\n    CONTROL_SUBTYPE_DISCOVER_RESP =\
+      \ 0x9\n\n    def _handle_control(self, payload):\n\n        if len(payload)\
+      \ < 1:\n            print(\"Too short for CONTROL:\", len(payload))\n      \
+      \      return\n\n        flags = payload[0]\n        sub_type = (flags >> 4)\
+      \ & 0x0F\n        data = payload[1:]\n\n        print()\n        print(\"===\
+      \ MESHCORE CONTROL ===\")\n        print(\"Sub-type : 0x%X\" % sub_type)\n\n\
+      \        if sub_type == self.CONTROL_SUBTYPE_DISCOVER_RESP:\n            self._handle_discover_resp(data)\n\
+      \n        elif sub_type == self.CONTROL_SUBTYPE_DISCOVER_REQ:\n            self._handle_discover_req(data)\n\
+      \n        else:\n            print(\"Data     :\", data.hex())\n\n    # ---------------------------------------------------------\n\
+      \    # DISCOVER_RESP: tag(4, LE) + reserved(1) + public_key(32)\n    #\n   \
+      \ # IMPORTANT FINDING: the responding node's FULL public key\n    # is sent\
+      \ completely unencrypted here - not just a 1-byte\n    # hash. Verified against\
+      \ three real packets where node_hash\n    # (the first byte of the key) exactly\
+      \ matches already-known\n    # nodes.\n    # ---------------------------------------------------------\n\
+      \    def _handle_discover_resp(self, data):\n\n        if len(data) < 37:\n\
+      \            print(\n                \"Too short for DISCOVER_RESP (expected\
+      \ at least \"\n                \"37 bytes, got %d)\" % len(data)\n         \
+      \   )\n            print(\"Data     :\", data.hex())\n            return\n\n\
+      \        tag = struct.unpack(\"<I\", data[0:4])[0]\n        reserved = data[4]\n\
+      \        pubkey = data[5:37]\n        node_hash = pubkey[0]\n\n        # Remember\
+      \ the key even if we don't know the name yet -\n        # may be useful later,\
+      \ and strengthens lookups in\n        # known_nodes (which is otherwise only\
+      \ built up via\n        # Advert packets).\n        self.known_pubkeys[node_hash]\
+      \ = pubkey.hex()\n\n        print(\"  -> DISCOVER_RESP (reply to a 'who's here'\
+      \ query)\")\n        print(\"Tag        : 0x%08X\" % tag)\n        print(\"\
+      Reserved   : 0x%02X\" % reserved)\n        print(\"Public Key : %s\" % pubkey.hex())\n\
+      \        print(\"Node hash  :\", self._fmt_hash(node_hash))\n\n    # ---------------------------------------------------------\n\
+      \    # DISCOVER_REQ: best-effort interpretation based on\n    # available documentation\
+      \ + byte-for-byte comparison\n    # against two real packets (identical layout\
+      \ in both):\n    #   type_filter(1) + tag(4, LE) + reserved(4)\n    # The exact\
+      \ semantics of type_filter are not 100% confirmed -\n    # shown as raw hex\
+      \ rather than an interpreted label.\n    # ---------------------------------------------------------\n\
+      \    def _handle_discover_req(self, data):\n\n        if len(data) < 9:\n  \
+      \          print(\n                \"Too short for DISCOVER_REQ (expected at\
+      \ least \"\n                \"9 bytes, got %d)\" % len(data)\n            )\n\
+      \            print(\"Data     :\", data.hex())\n            return\n\n     \
+      \   type_filter = data[0]\n        tag = struct.unpack(\"<I\", data[1:5])[0]\n\
+      \        reserved = data[5:9]\n\n        print(\"  -> DISCOVER_REQ ('who's here'\
+      \ query)\")\n        print(\"Type filter : 0x%02X\" % type_filter)\n       \
+      \ print(\"Tag         : 0x%08X\" % tag)\n        print(\"Reserved    :\", reserved.hex())\n\
+      \n    # ---------------------------------------------------------\n    # Trace:\
+      \ traces a path through the mesh network and\n    # collects SNR per hop. Always\
+      \ cleartext.\n    #   tag(4, LE) + auth_code(4, LE) + flags(1) + path_hashes(rest)\n\
+      \    # ---------------------------------------------------------\n    def _handle_trace(self,\
+      \ payload):\n\n        if len(payload) < 9:\n            print(\"Too short for\
+      \ TRACE:\", len(payload))\n            return\n\n        tag = struct.unpack(\"\
+      <I\", payload[0:4])[0]\n        auth_code = struct.unpack(\"<I\", payload[4:8])[0]\n\
+      \        flags = payload[8]\n        path_hashes = payload[9:]\n\n        hop_list\
+      \ = [\n            self._fmt_hash(h) for h in path_hashes\n        ]\n\n   \
+      \     print()\n        print(\"=== MESHCORE TRACE ===\")\n        print(\"Tag\
+      \        : 0x%08X\" % tag)\n        print(\"Auth code  : 0x%08X\" % auth_code)\n\
+      \        print(\"Flags      : 0x%02X\" % flags)\n        if hop_list:\n    \
+      \        print(\"Path so far (node-hashes):\", \" -> \".join(hop_list))\n  \
+      \      else:\n            print(\"Path so far: (empty, trace starts here)\"\
+      )\n\n    # ---------------------------------------------------------\n    #\
+      \ Main handler\n    # ---------------------------------------------------------\n\
+      \    def handle_msg(self, msg):\n\n        print()\n        print(\"=== MESHCORE\
+      \ PACKET ===\")\n\n        self._ensure_csv_ready()\n\n        try:\n\n    \
+      \        data = self._extract_bytes(msg)\n\n            if data is None:\n \
+      \               return\n\n            # -------------------------------------------------\n\
       \            # Debug\n            # -------------------------------------------------\n\
       \n            print(\"Length:\", len(data))\n            print(\"HEX:\", data.hex(\"\
-      \ \"))\n\n            if len(data) < 2:\n                print(\"F\xF6r kort\
-      \ f\xF6r att ens inneh\xE5lla header + path_len\")\n                return\n\
-      \n            # -------------------------------------------------\n        \
-      \    # Header\n            # -------------------------------------------------\n\
-      \n            header = data[0]\n\n            version = (header >> 6) & 0x03\n\
-      \            payload_type = (header >> 2) & 0x0F\n            route_type = header\
+      \ \"))\n\n            if len(data) < 2:\n                print(\"Too short to\
+      \ even contain header + path_len\")\n                return\n\n            #\
+      \ -------------------------------------------------\n            # Header\n\
+      \            # -------------------------------------------------\n\n       \
+      \     header = data[0]\n\n            version = (header >> 6) & 0x03\n     \
+      \       payload_type = (header >> 2) & 0x0F\n            route_type = header\
       \ & 0x03\n\n            route_name = ROUTE_TYPE_NAMES.get(\n               \
-      \ route_type, \"OK\xC4ND(0x%X)\" % route_type\n            )\n            payload_name\
-      \ = PAYLOAD_TYPE_NAMES.get(\n                payload_type, \"OK\xC4ND(0x%X)\"\
+      \ route_type, \"UNKNOWN(0x%X)\" % route_type\n            )\n            payload_name\
+      \ = PAYLOAD_TYPE_NAMES.get(\n                payload_type, \"UNKNOWN(0x%X)\"\
       \ % payload_type\n            )\n\n            print(\"Header:       0x%02X\"\
       \ % header)\n            print(\"Version:      \", version)\n            print(\"\
       Route type:   \", route_name)\n            print(\"Payload type: \", payload_name)\n\
       \n            offset = 1\n\n            # -------------------------------------------------\n\
-      \            # Transport codes (bara f\xF6r *_TRANSPORT_* route types)\n   \
-      \         # -------------------------------------------------\n\n          \
-      \  has_transport = route_type in (\n                ROUTE_TYPE_TRANSPORT_FLOOD,\n\
-      \                ROUTE_TYPE_TRANSPORT_DIRECT,\n            )\n\n           \
-      \ if has_transport:\n\n                if len(data) < offset + 4:\n        \
-      \            print(\"F\xF6r kort f\xF6r transport codes\")\n               \
-      \     return\n\n                transport_codes = data[offset:offset + 4]\n\
-      \                offset += 4\n\n                print(\"Transport codes:\",\
-      \ transport_codes.hex())\n\n            # -------------------------------------------------\n\
-      \            # Path length + path (nod-hashar f\xF6r varje hopp)\n         \
-      \   # -------------------------------------------------\n\n            if len(data)\
-      \ < offset + 1:\n                print(\"F\xF6r kort f\xF6r path_len-byten\"\
-      )\n                return\n\n            path_len_byte = data[offset]\n    \
-      \        offset += 1\n\n            hash_size = ((path_len_byte >> 6) & 0x03)\
-      \ + 1\n            hash_count = path_len_byte & 0x3F\n            path_bytes_len\
-      \ = hash_size * hash_count\n\n            print(\n                \"Path_len\
-      \ byte: 0x%02X  \"\n                \"(hash_size=%d byte/hopp, hash_count=%d\
-      \ hopp)\"\n                % (path_len_byte, hash_size, hash_count)\n      \
-      \      )\n\n            if len(data) < offset + path_bytes_len:\n          \
-      \      print(\"F\xF6r kort f\xF6r path-f\xE4ltet\")\n                return\n\
+      \            # Transport codes (only for *_TRANSPORT_* route types)\n      \
+      \      # -------------------------------------------------\n\n            has_transport\
+      \ = route_type in (\n                ROUTE_TYPE_TRANSPORT_FLOOD,\n         \
+      \       ROUTE_TYPE_TRANSPORT_DIRECT,\n            )\n\n            if has_transport:\n\
+      \n                if len(data) < offset + 4:\n                    print(\"Too\
+      \ short for transport codes\")\n                    return\n\n             \
+      \   transport_codes = data[offset:offset + 4]\n                offset += 4\n\
+      \n                print(\"Transport codes:\", transport_codes.hex())\n\n   \
+      \         # -------------------------------------------------\n            #\
+      \ Path length + path (node-hashes for each hop)\n            # -------------------------------------------------\n\
+      \n            if len(data) < offset + 1:\n                print(\"Too short\
+      \ for the path_len byte\")\n                return\n\n            path_len_byte\
+      \ = data[offset]\n            offset += 1\n\n            hash_size = ((path_len_byte\
+      \ >> 6) & 0x03) + 1\n            hash_count = path_len_byte & 0x3F\n       \
+      \     path_bytes_len = hash_size * hash_count\n\n            print(\n      \
+      \          \"Path_len byte: 0x%02X  \"\n                \"(hash_size=%d bytes/hop,\
+      \ hash_count=%d hops)\"\n                % (path_len_byte, hash_size, hash_count)\n\
+      \            )\n\n            if len(data) < offset + path_bytes_len:\n    \
+      \            print(\"Too short for the path field\")\n                return\n\
       \n            path_bytes = data[offset:offset + path_bytes_len]\n          \
       \  offset += path_bytes_len\n\n            hops = [\n                path_bytes[i:i\
       \ + hash_size].hex()\n                for i in range(0, path_bytes_len, hash_size)\n\
       \            ]\n\n            if hops:\n                print(\n           \
-      \         \"Path (hopp, \xE4ldst -> n\xE4rmast):\",\n                    \"\
-      \ -> \".join(hops)\n                )\n                print(\"Mottaget via\
-      \ (senaste hoppet):\", hops[-1])\n            else:\n                print(\"\
-      Path: tom (mottaget direkt, 0 hopp)\")\n\n            # -------------------------------------------------\n\
-      \            # Payload - avkodas olika beroende p\xE5 typ\n            # -------------------------------------------------\n\
-      \n            payload = data[offset:]\n\n            if payload_type == PAYLOAD_TYPE_ADVERT:\n\
-      \                self._handle_advert(payload, hops)\n\n            elif payload_type\
+      \         \"Path (hops, oldest -> nearest):\",\n                    \" -> \"\
+      .join(hops)\n                )\n                print(\"Received via (most recent\
+      \ hop):\", hops[-1])\n            else:\n                print(\"Path: empty\
+      \ (received directly, 0 hops)\")\n\n            # -------------------------------------------------\n\
+      \            # Payload - decoded differently depending on type\n           \
+      \ # -------------------------------------------------\n\n            payload\
+      \ = data[offset:]\n\n            if payload_type == PAYLOAD_TYPE_ADVERT:\n \
+      \               self._handle_advert(payload, hops)\n\n            elif payload_type\
       \ in (\n                PAYLOAD_TYPE_REQ,\n                PAYLOAD_TYPE_RESPONSE,\n\
       \                PAYLOAD_TYPE_TXT_MSG,\n                PAYLOAD_TYPE_PATH,\n\
       \            ):\n                self._handle_enveloped(payload, payload_name)\n\
@@ -386,12 +441,13 @@ blocks:
       \                PAYLOAD_TYPE_GRP_DATA,\n            ):\n                self._handle_group(payload,\
       \ payload_name)\n\n            elif payload_type == PAYLOAD_TYPE_ANON_REQ:\n\
       \                self._handle_anon_req(payload)\n\n            elif payload_type\
-      \ == PAYLOAD_TYPE_CONTROL:\n                self._handle_control(payload)\n\n\
-      \            else:\n                print(\n                    \"Payload type\
-      \ %s st\xF6ds inte f\xF6r detaljerad \"\n                    \"parsning \xE4\
-      nnu.\" % payload_name\n                )\n\n        except Exception as e:\n\
-      \n            print(\n                \"MeshCore decoder error:\",\n       \
-      \         repr(e)\n            )\n"
+      \ == PAYLOAD_TYPE_TRACE:\n                self._handle_trace(payload)\n\n  \
+      \          elif payload_type == PAYLOAD_TYPE_CONTROL:\n                self._handle_control(payload)\n\
+      \n            else:\n                print(\n                    \"Payload type\
+      \ %s is not yet supported for \"\n                    \"detailed parsing.\"\
+      \ % payload_name\n                )\n\n        except Exception as e:\n\n  \
+      \          print(\n                \"MeshCore decoder error:\",\n          \
+      \      repr(e)\n            )\n"
     affinity: ''
     alias: ''
     comment: ''
@@ -399,12 +455,12 @@ blocks:
     minoutbuf: '0'
   states:
     _io_cache: ('MeshCore Decoder', 'blk', [], [('in', 'message', 1)], [('out', 'message',
-      1)], '\n    MeshCore paketdekoder (Advert, Request/Response/TxtMsg/Path,\n    Ack,
+      1)], '\n    MeshCore packet decoder (Advert, Request/Response/TxtMsg/Path,\n    Ack,
       Group Txt/Data, Anon Request, Control)\n    ', [])
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [992, 16.0]
+    coordinate: [1000, 160.0]
     rotation: 0
     state: enabled
 - name: lora_rx_0
@@ -433,125 +489,6 @@ blocks:
     coordinate: [696, 124.0]
     rotation: 0
     state: enabled
-- name: lora_sdr_crc_verif_0
-  id: lora_sdr_crc_verif
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    output_crc_check: 'False'
-    print_rx_msg: '1'
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [856, 544.0]
-    rotation: 0
-    state: disabled
-- name: lora_sdr_header_decoder_0
-  id: lora_sdr_header_decoder
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    cr: '4'
-    has_crc: 'True'
-    impl_head: '0'
-    ldro: '2'
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    pay_len: '255'
-    print_header: 'True'
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [872, 284.0]
-    rotation: 0
-    state: disabled
-- name: msg_debug
-  id: blocks_message_debug
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    en_uvec: 'False'
-    log_level: debug
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [1280, 88.0]
-    rotation: 0
-    state: disabled
-- name: qtgui_edit_box_msg_0
-  id: qtgui_edit_box_msg
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    gui_hint: ''
-    is_pair: 'False'
-    is_static: 'True'
-    key: ''
-    label: Header Frame Info
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    type: string
-    value: ''
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [1160, 428.0]
-    rotation: 0
-    state: disabled
-- name: qtgui_edit_box_msg_0_0
-  id: qtgui_edit_box_msg
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    gui_hint: ''
-    is_pair: 'False'
-    is_static: 'True'
-    key: ''
-    label: CRC Verif msg
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    type: string
-    value: ''
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [1160, 556.0]
-    rotation: 0
-    state: disabled
-- name: qtgui_edit_box_msg_0_1
-  id: qtgui_edit_box_msg
-  parameters:
-    affinity: ''
-    alias: ''
-    comment: ''
-    gui_hint: ''
-    is_pair: 'False'
-    is_static: 'True'
-    key: ''
-    label: LoRa RX Out
-    maxoutbuf: '0'
-    minoutbuf: '0'
-    type: string
-    value: ''
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [1160, 284.0]
-    rotation: 0
-    state: disabled
 - name: qtgui_freq_sink_x_0
   id: qtgui_freq_sink_x
   parameters:
@@ -1053,14 +990,7 @@ blocks:
     state: enabled
 
 connections:
-- [epy_block_0, out, qtgui_edit_box_msg_0_1, val]
-- [lora_rx_0, '0', lora_sdr_header_decoder_0, '0']
 - [lora_rx_0, out, epy_block_0, in]
-- [lora_sdr_crc_verif_0, msg, msg_debug, print]
-- [lora_sdr_crc_verif_0, msg, qtgui_edit_box_msg_0_0, val]
-- [lora_sdr_header_decoder_0, '0', lora_sdr_crc_verif_0, '0']
-- [lora_sdr_header_decoder_0, frame_info, msg_debug, print]
-- [lora_sdr_header_decoder_0, frame_info, qtgui_edit_box_msg_0, val]
 - [rtl_source, '0', lora_rx_0, '0']
 - [rtl_source, '0', qtgui_freq_sink_x_0, '0']
 - [rtl_source, '0', qtgui_waterfall_sink_x_0, '0']

@@ -1,0 +1,1 @@
+C:\ProgramData\radioconda\python.exe -u meshcore_rx.py

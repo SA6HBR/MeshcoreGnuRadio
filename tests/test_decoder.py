@@ -118,7 +118,7 @@ class DecoderTestCase(unittest.TestCase):
         self.assertIn("57.078399", out)   # latitude - would be wrong if
         self.assertIn("12.277213", out)   # parsed as float instead of
                                            # scaled int32 (regression check)
-        self.assertIn("direkt (0 hopp", out)
+        self.assertIn("directly (0 hops", out)
 
     # -----------------------------------------------------------------
     # Advert: FLOOD route, 1 hop - must NOT be rejected just because
@@ -157,7 +157,7 @@ class DecoderTestCase(unittest.TestCase):
         )
         self.assertIn("RESPONSE", out)
         self.assertIn("SE1383-Apelviken-4977", out)  # src_hash resolved
-        self.assertIn("krypterat", out)  # must NOT attempt to decrypt
+        self.assertIn("encrypted", out)  # must NOT attempt to decrypt
 
     # -----------------------------------------------------------------
     # CONTROL / DISCOVER_RESP: full public key leaked in cleartext

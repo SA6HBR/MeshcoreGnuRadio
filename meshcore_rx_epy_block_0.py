@@ -8,8 +8,8 @@ import pmt
 
 
 # -------------------------------------------------------------
-# CSV-export av mottagna Advert-paket (en logg - en ny rad för
-# varje mottaget Advert, inte begränsat till en unik rad per nod)
+# CSV export of received Advert packets (a log - a new row for
+# every received Advert, not limited to one unique row per node)
 # -------------------------------------------------------------
 
 CSV_FILENAME = "mapAdvert.csv"
@@ -18,9 +18,9 @@ CSV_HEADER = [
     "NodeName",
     "Latitude",
     "Longitude",
-    "Nodtyp",
-    "LastNodHash",
-    "SecondLastNodHash",
+    "NodeType",
+    "LastNodeHash",
+    "SecondLastNodeHash",
     "HashCount",
     "PublicKey",
 ]
@@ -28,15 +28,16 @@ CSV_HEADER = [
 
 def _script_dir():
     """
-    Ta reda på mappen där .grc-filen (och den genererade
-    meshcore_rx.py) ligger.
+    Figure out the folder where the .grc file (and the generated
+    meshcore_rx.py) lives.
 
-    OBS: __file__ finns INTE definierat här, eftersom GNU Radio
-    Companion kör embedded Python-block via exec() istället för
-    en vanlig modulimport. Använd därför sys.argv[0], som pekar
-    på den toppnivåfil (meshcore_rx.py) som faktiskt startades
-    med "python meshcore_rx.py" / GRC:s Execute-knapp, och som
-    ligger i samma mapp som .grc-filen.
+    NOTE: __file__ is NOT defined here, because GNU Radio
+    Companion runs embedded Python blocks via exec() instead of
+    a normal module import. So fall back to sys.argv[0], which
+    points at the top-level file (meshcore_rx.py) that was
+    actually started with "python meshcore_rx.py" / GRC's
+    Execute button, and which lives in the same folder as the
+    .grc file.
     """
     try:
         return os.path.dirname(os.path.abspath(__file__))
@@ -54,8 +55,8 @@ def _script_dir():
 
 
 # -------------------------------------------------------------
-# MeshCore header-fält (src/Packet.h i meshcore-dev/MeshCore)
-# Headerbyte: 0bVVPPPPRR
+# MeshCore header fields (src/Packet.h in meshcore-dev/MeshCore)
+# Header byte: 0bVVPPPPRR
 #   bit 0-1 : route type
 #   bit 2-5 : payload type
 #   bit 6-7 : version
@@ -104,10 +105,10 @@ PAYLOAD_TYPE_NAMES = {
 }
 
 # -------------------------------------------------------------
-# Advert appdata-flaggor (docs/payloads.md)
+# Advert appdata flags (docs/payloads.md)
 # -------------------------------------------------------------
 
-ADV_TYPE_MASK = 0x0F          # låga 4 bitarna: nodtyp (enum, ej bitmask)
+ADV_TYPE_MASK = 0x0F          # low 4 bits: node type (enum, not a bitmask)
 ADV_TYPE_NAMES = {
     0x01: "chat node",
     0x02: "repeater",
@@ -123,14 +124,14 @@ ADV_FLAG_HAS_NAME = 0x80
 
 class blk(gr.basic_block):
     """
-    MeshCore paketdekoder (Advert, Request/Response/TxtMsg/Path,
+    MeshCore packet decoder (Advert, Request/Response/TxtMsg/Path,
     Ack, Group Txt/Data, Anon Request, Control)
     """
 
     def __init__(self):
         print("=" * 40)
-        print("MeshCore RX-dekoder")
-        print("Programmerad av SA6HBR")
+        print("MeshCore RX decoder")
+        print("Written by SA6HBR")
         print("=" * 40)
 
         gr.basic_block.__init__(
@@ -148,52 +149,49 @@ class blk(gr.basic_block):
 
         self.message_port_register_out(pmt.intern("out"))
 
-        # Nod-hash (1 byte) -> nodnamn, byggs upp allteftersom
-        # vi ser Advert-paket. Används för att slå upp
-        # avsändare/mottagare i krypterade paket (Request,
-        # Response, TxtMsg, Path).
+        # Node-hash (1 byte) -> node name, built up as we see
+        # Advert packets. Used to look up senders/recipients in
+        # encrypted packets (Request, Response, TxtMsg, Path).
         self.known_nodes = {}
 
-        # Nod-hash (1 byte) -> full publik nyckel (hex, 32 byte).
-        # Fylls på både från Advert och från CONTROL/DISCOVER_RESP
-        # (som läcker den fulla nyckeln helt okrypterat).
+        # Node-hash (1 byte) -> full public key (hex, 32 bytes).
+        # Populated from both Advert and CONTROL/DISCOVER_RESP
+        # (which leaks the full key completely unencrypted).
         self.known_pubkeys = {}
 
-        # CSV-export: en unik rad per nod (nyckel = publik nyckel
-        # i hex). self.csv_path sätts INTE här - se
-        # _ensure_csv_ready() nedan för varför.
+        # CSV export. self.csv_path is NOT set here - see
+        # _ensure_csv_ready() below for why.
         self.csv_path = None
         self._csv_ready = False
 
     # ---------------------------------------------------------
-    # Lat initiering av CSV-sökväg/-mapp.
+    # Lazy setup of the CSV path/folder.
     #
-    # VIKTIGT: detta får INTE göras i __init__(). GNU Radio
-    # Companion instansierar embedded Python-block redan vid
-    # designtid (när du öppnar/redigerar .grc-filen) genom att
-    # exec():a kodrutans innehåll direkt - inte genom att
-    # importera själva filen. I det läget:
-    #   - finns __file__ inte definierat
-    #   - pekar sys.argv[0]/cwd på GRC:s egen installations-
-    #     mapp (t.ex. radioconda\Library\bin), där man oftast
-    #     INTE har skrivrättigheter
-    # Att skapa mappar/filer i __init__ kraschar därför
-    # blockets instansiering redan när du öppnar flowgraphen,
-    # långt innan den faktiskt körs.
+    # IMPORTANT: this must NOT be done in __init__(). GNU Radio
+    # Companion already instantiates embedded Python blocks at
+    # design time (when you open/edit the .grc file) by
+    # exec()-ing the code box content directly - not by
+    # importing the file itself. In that context:
+    #   - __file__ is not defined
+    #   - sys.argv[0]/cwd point at GRC's own installation
+    #     folder (e.g. radioconda\Library\bin), where you
+    #     usually do NOT have write permission
+    # Creating folders/files in __init__ therefore crashes the
+    # block's instantiation as soon as you open the flowgraph,
+    # long before it's actually run.
     #
-    # Genom att skjuta upp detta till första riktiga
-    # handle_msg-anrop körs koden istället i den process som
-    # faktiskt startas via "python meshcore_rx.py" (där
-    # meshcore_rx_epy_block_0 laddas med en vanlig import), och
-    # då är __file__ korrekt satt till sökvägen bredvid
-    # .grc-filen.
+    # By deferring this to the first real handle_msg call, the
+    # code instead runs inside the process actually started via
+    # "python meshcore_rx.py" (where meshcore_rx_epy_block_0 is
+    # loaded with a normal import), and __file__ is then
+    # correctly set to the path next to the .grc file.
     # ---------------------------------------------------------
     def _ensure_csv_ready(self):
 
         if self._csv_ready:
             return
 
-        self._csv_ready = True  # försök bara en gång
+        self._csv_ready = True  # only try once
 
         try:
             script_dir = _script_dir()
@@ -202,8 +200,9 @@ class blk(gr.basic_block):
 
             self.csv_path = os.path.join(output_dir, CSV_FILENAME)
 
-            # Skriv rubrikraden bara om filen inte redan finns
-            # (eller är tom) - annars fortsätter vi bara fylla på.
+            # Only write the header row if the file doesn't
+            # already exist (or is empty) - otherwise just keep
+            # appending.
             need_header = (
                 not os.path.exists(self.csv_path)
                 or os.path.getsize(self.csv_path) == 0
@@ -214,14 +213,14 @@ class blk(gr.basic_block):
 
         except Exception as e:
             print(
-                "Kunde inte förbereda mapAdvert.csv (CSV-export "
-                "avstängd för denna körning):", repr(e)
+                "Could not prepare mapAdvert.csv (CSV export "
+                "disabled for this run):", repr(e)
             )
             self.csv_path = None
 
     # ---------------------------------------------------------
-    # Lägg till en ny rad i mapAdvert.csv (en rad per mottaget
-    # Advert-paket - inte begränsat till en unik rad per nod)
+    # Append a new row to mapAdvert.csv (one row per received
+    # Advert packet - not limited to one unique row per node)
     # ---------------------------------------------------------
     def _append_csv_row(self, row):
 
@@ -232,10 +231,10 @@ class blk(gr.basic_block):
             with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
                 csv.DictWriter(f, fieldnames=CSV_HEADER).writerow(row)
         except Exception as e:
-            print("Kunde inte skriva till", self.csv_path, ":", repr(e))
+            print("Could not write to", self.csv_path, ":", repr(e))
 
     # ---------------------------------------------------------
-    # Läs ut den råa payloaden ur den inkommande PMT:n
+    # Read out the raw payload from the incoming PMT
     # ---------------------------------------------------------
     def _extract_bytes(self, msg):
 
@@ -247,26 +246,27 @@ class blk(gr.basic_block):
 
         if pmt.is_symbol(msg):
 
-            # Viktigt:
-            # LoRa-blocket skickar binära bytes som en PMT
-            # "symbol". pmt.symbol_to_string() kraschar på detta
-            # eftersom den gör en STRIKT UTF-8-avkodning i
-            # pybind11-lagret - och LoRa-payloads är rå binärdata,
-            # inte text, så nästan varje paket innehåller ogiltiga
-            # UTF-8-sekvenser.
+            # Important:
+            # The LoRa block sends binary bytes as a PMT
+            # "symbol". pmt.symbol_to_string() crashes on this
+            # because it performs a STRICT UTF-8 decode in the
+            # pybind11 layer - and LoRa payloads are raw binary
+            # data, not text, so almost every packet contains
+            # invalid UTF-8 sequences.
             #
-            # Workaround: gå via PMT:s binära serialisering
-            # (pmt.serialize_str), som returnerar rena 'bytes'
-            # utan någon UTF-8-tvingning, och plocka ut råbytesen
-            # manuellt ur PMT-serieformatet:
-            #   [1 byte tagg][2 byte längd, big-endian][data]
-            # Taggen för en symbol i PMT-serieformatet är 0x02.
+            # Workaround: go via PMT's binary serialization
+            # (pmt.serialize_str), which returns plain 'bytes'
+            # with no UTF-8 enforcement, and manually pick the
+            # raw bytes out of the PMT serialization format:
+            #   [1 byte tag][2 byte length, big-endian][data]
+            # The tag for a symbol in the PMT serialization
+            # format is 0x02.
             raw = pmt.serialize_str(msg)
 
             if len(raw) < 3 or raw[0] != 0x02:
                 print(
-                    "Oväntat PMT-serieformat, första byte:",
-                    raw[0:1].hex() if raw else "(tomt)"
+                    "Unexpected PMT serialization format, first byte:",
+                    raw[0:1].hex() if raw else "(empty)"
                 )
                 return None
 
@@ -275,29 +275,29 @@ class blk(gr.basic_block):
 
             if len(data) != length:
                 print(
-                    "Serialiserad längd stämmer inte:",
-                    "förväntade", length,
-                    "fick", len(data)
+                    "Serialized length mismatch:",
+                    "expected", length,
+                    "got", len(data)
                 )
                 return None
 
             return data
 
-        print("Okänd PMT-typ:")
+        print("Unknown PMT type:")
         print(pmt.write_string(msg))
         return None
 
     # ---------------------------------------------------------
-    # Slå upp ett nod-hash mot kända nodnamn/publika nycklar
-    # (om vi sett dess Advert eller DISCOVER_RESP tidigare)
+    # Look up a node-hash against known node names/public keys
+    # (if we've seen its Advert or DISCOVER_RESP before)
     # ---------------------------------------------------------
     def _fmt_hash(self, node_hash):
         name = self.known_nodes.get(node_hash)
         if name:
             return "%02x (%s)" % (node_hash, name)
         if node_hash in self.known_pubkeys:
-            return "%02x (namn okänt, men pubkey sedd)" % node_hash
-        return "%02x (okänd nod)" % node_hash
+            return "%02x (name unknown, but pubkey seen)" % node_hash
+        return "%02x (unknown node)" % node_hash
 
     # ---------------------------------------------------------
     # Advert
@@ -305,10 +305,10 @@ class blk(gr.basic_block):
     def _handle_advert(self, payload, hops):
 
         # Public key(32) + timestamp(4) + signature(64)
-        # + appdata flags(1) = 101 byte minimum
+        # + appdata flags(1) = 101 bytes minimum
         if len(payload) < 101:
             print(
-                "För kort för MeshCore Advert-payload:",
+                "Too short for a MeshCore Advert payload:",
                 len(payload)
             )
             return
@@ -323,7 +323,7 @@ class blk(gr.basic_block):
         flags = appdata[0]
 
         node_type = ADV_TYPE_NAMES.get(
-            flags & ADV_TYPE_MASK, "okänd/ingen"
+            flags & ADV_TYPE_MASK, "unknown/none"
         )
 
         p = 1
@@ -332,43 +332,43 @@ class blk(gr.basic_block):
 
         if flags & ADV_FLAG_HAS_LOCATION:
             if len(appdata) < p + 8:
-                print("Appdata för kort för lat/long")
+                print("Appdata too short for lat/long")
                 return
             lat_raw = struct.unpack("<i", appdata[p:p + 4])[0]
             lon_raw = struct.unpack("<i", appdata[p + 4:p + 8])[0]
-            # Enligt spec: decimalgrader * 1 000 000, som int32
+            # Per spec: decimal degrees * 1,000,000, as int32
             latitude = lat_raw / 1_000_000.0
             longitude = lon_raw / 1_000_000.0
             p += 8
 
         if flags & ADV_FLAG_HAS_FEATURE1:
-            p += 2  # reserverat för framtida bruk
+            p += 2  # reserved for future use
 
         if flags & ADV_FLAG_HAS_FEATURE2:
-            p += 2  # reserverat för framtida bruk
+            p += 2  # reserved for future use
 
         node_name = None
         if flags & ADV_FLAG_HAS_NAME:
             name_bytes = appdata[p:].rstrip(b"\x00")
             node_name = name_bytes.decode("utf-8", errors="replace")
 
-        # Kom ihåg noden för framtida uppslag
+        # Remember the node for future lookups
         self.known_pubkeys[node_hash] = public_key.hex()
         if node_name:
             self.known_nodes[node_hash] = node_name
 
         # -------------------------------------------------
-        # CSV: en ny rad per mottaget Advert (logg, inte
-        # begränsat till en unik rad per nod)
+        # CSV: a new row per received Advert (log, not
+        # limited to one unique row per node)
         # -------------------------------------------------
 
         last_hop = hops[-1] if hops else ""
         second_last_hop = hops[-2] if len(hops) >= 2 else ""
 
-        # Tidsstämpel = när VI tog emot paketet (systemtid), inte
-        # advert-paketets egen interna timestamp-fält (som skrivs
-        # ut separat nedan under "Timestamp"). Så här ser man
-        # exakt när i din logg varje rad kom in.
+        # Timestamp = when WE received the packet (system time),
+        # not the advert packet's own internal timestamp field
+        # (printed separately below as "Timestamp"). This lets
+        # you see exactly when each row in your log came in.
         received_at = datetime.datetime.now().isoformat(timespec="seconds")
 
         csv_row = {
@@ -380,9 +380,9 @@ class blk(gr.basic_block):
             "Longitude": (
                 "%.6f" % longitude if longitude is not None else ""
             ),
-            "Nodtyp": node_type,
-            "LastNodHash": last_hop,
-            "SecondLastNodHash": second_last_hop,
+            "NodeType": node_type,
+            "LastNodeHash": last_hop,
+            "SecondLastNodeHash": second_last_hop,
             "HashCount": len(hops),
             "PublicKey": public_key.hex(),
         }
@@ -394,15 +394,15 @@ class blk(gr.basic_block):
         print("       MESHCORE ADVERT")
         print("================================")
 
-        print("Node Name       :", node_name if node_name else "(inget namn i paketet)")
-        print("Nod-hash        : %02x" % node_hash)
-        print("Nodtyp          :", node_type)
+        print("Node Name       :", node_name if node_name else "(no name in packet)")
+        print("Node hash       : %02x" % node_hash)
+        print("Node type       :", node_type)
 
         if hops:
-            print("Kommer från nod-hash (senaste hopp): %s" % hops[-1])
-            print("Fullständig väg (hopp)             :", " -> ".join(hops))
+            print("From node-hash (last hop) : %s" % hops[-1])
+            print("Full path (hops)          :", " -> ".join(hops))
         else:
-            print("Kommer från     : direkt (0 hopp, ingen repeater)")
+            print("Received        : directly (0 hops, no repeater)")
 
         print("Public Key      :", public_key.hex())
         print("Timestamp       :", timestamp)
@@ -412,11 +412,11 @@ class blk(gr.basic_block):
             print("Latitude        :", latitude)
             print("Longitude       :", longitude)
         else:
-            print("Latitude/Long   : (ingen platsinfo i paketet)")
+            print("Latitude/Long   : (no location info in packet)")
 
         print("================================")
         if self.csv_path:
-            print("CSV uppdaterad  :", self.csv_path)
+            print("CSV updated     :", self.csv_path)
 
         if node_name:
             self.message_port_pub(
@@ -426,15 +426,15 @@ class blk(gr.basic_block):
 
     # ---------------------------------------------------------
     # Request / Response / TxtMsg / (Returned) Path
-    # Delar samma kuvert:
+    # Share the same envelope:
     #   dest_hash(1) + src_hash(1) + cipher_mac(2) + ciphertext
-    # Innehållet (ciphertext) är krypterat och kan inte läsas
-    # här - vi kan bara visa vem som pratar med vem.
+    # The content (ciphertext) is encrypted and cannot be read
+    # here - we can only show who's talking to whom.
     # ---------------------------------------------------------
     def _handle_enveloped(self, payload, payload_name):
 
         if len(payload) < 4:
-            print("För kort för %s-kuvert:" % payload_name, len(payload))
+            print("Too short for a %s envelope:" % payload_name, len(payload))
             return
 
         dest_hash = payload[0]
@@ -446,11 +446,11 @@ class blk(gr.basic_block):
         print("================================")
         print("       MESHCORE %s" % payload_name)
         print("================================")
-        print("Till (dest_hash)  :", self._fmt_hash(dest_hash))
-        print("Från (src_hash)   :", self._fmt_hash(src_hash))
+        print("To (dest_hash)    :", self._fmt_hash(dest_hash))
+        print("From (src_hash)   :", self._fmt_hash(src_hash))
         print("Cipher MAC        :", cipher_mac.hex())
-        print("Ciphertext-längd  :", len(ciphertext), "byte")
-        print("(Innehållet är krypterat - kan inte läsas här)")
+        print("Ciphertext length :", len(ciphertext), "bytes")
+        print("(Content is encrypted - cannot be read here)")
         print("================================")
 
     # ---------------------------------------------------------
@@ -459,7 +459,7 @@ class blk(gr.basic_block):
     def _handle_ack(self, payload):
 
         if len(payload) < 4:
-            print("För kort för ACK:", len(payload))
+            print("Too short for ACK:", len(payload))
             return
 
         checksum = struct.unpack("<I", payload[0:4])[0]
@@ -475,7 +475,7 @@ class blk(gr.basic_block):
     def _handle_group(self, payload, payload_name):
 
         if len(payload) < 3:
-            print("För kort för %s:" % payload_name, len(payload))
+            print("Too short for %s:" % payload_name, len(payload))
             return
 
         channel_hash = payload[0]
@@ -486,8 +486,8 @@ class blk(gr.basic_block):
         print("=== MESHCORE %s ===" % payload_name)
         print("Channel hash      : %02x" % channel_hash)
         print("Cipher MAC        :", cipher_mac.hex())
-        print("Ciphertext-längd  :", len(ciphertext), "byte")
-        print("(Innehållet är krypterat - kan inte läsas här)")
+        print("Ciphertext length :", len(ciphertext), "bytes")
+        print("(Content is encrypted - cannot be read here)")
 
     # ---------------------------------------------------------
     # Anonymous Request
@@ -496,7 +496,7 @@ class blk(gr.basic_block):
     def _handle_anon_req(self, payload):
 
         if len(payload) < 35:
-            print("För kort för ANON_REQ:", len(payload))
+            print("Too short for ANON_REQ:", len(payload))
             return
 
         dest_hash = payload[0]
@@ -506,19 +506,19 @@ class blk(gr.basic_block):
 
         print()
         print("=== MESHCORE ANON_REQ ===")
-        print("Till (dest_hash)   :", self._fmt_hash(dest_hash))
-        print("Avsändarens pubkey :", sender_pubkey.hex())
+        print("To (dest_hash)     :", self._fmt_hash(dest_hash))
+        print("Sender's pubkey    :", sender_pubkey.hex())
         print("Cipher MAC         :", cipher_mac.hex())
-        print("Ciphertext-längd   :", len(ciphertext), "byte")
-        print("(Innehållet är krypterat - kan inte läsas här)")
+        print("Ciphertext length  :", len(ciphertext), "bytes")
+        print("(Content is encrypted - cannot be read here)")
 
     # ---------------------------------------------------------
-    # Control data (helt okrypterat)
-    # flags(1, övre 4 bitar = sub_type) + data
+    # Control data (always cleartext)
+    # flags(1, top 4 bits = sub_type) + data
     #
     # Sub-type 0x8 = DISCOVER_REQ, 0x9 = DISCOVER_RESP
-    # (bekräftat mot officiell dokumentation + verifierat
-    # byte-för-byte mot riktiga fångade paket).
+    # (confirmed against official documentation + verified
+    # byte-for-byte against real captured packets).
     # ---------------------------------------------------------
     CONTROL_SUBTYPE_DISCOVER_REQ = 0x8
     CONTROL_SUBTYPE_DISCOVER_RESP = 0x9
@@ -526,7 +526,7 @@ class blk(gr.basic_block):
     def _handle_control(self, payload):
 
         if len(payload) < 1:
-            print("För kort för CONTROL:", len(payload))
+            print("Too short for CONTROL:", len(payload))
             return
 
         flags = payload[0]
@@ -549,17 +549,18 @@ class blk(gr.basic_block):
     # ---------------------------------------------------------
     # DISCOVER_RESP: tag(4, LE) + reserved(1) + public_key(32)
     #
-    # VIKTIGT FYND: den svarande nodens FULLA publika nyckel
-    # skickas helt okrypterat här - inte bara en 1-byte-hash.
-    # Verifierat mot tre riktiga paket där node_hash (första
-    # byten i nyckeln) stämmer exakt mot redan kända noder.
+    # IMPORTANT FINDING: the responding node's FULL public key
+    # is sent completely unencrypted here - not just a 1-byte
+    # hash. Verified against three real packets where node_hash
+    # (the first byte of the key) exactly matches already-known
+    # nodes.
     # ---------------------------------------------------------
     def _handle_discover_resp(self, data):
 
         if len(data) < 37:
             print(
-                "För kort för DISCOVER_RESP (förväntade minst 37 "
-                "byte, fick %d)" % len(data)
+                "Too short for DISCOVER_RESP (expected at least "
+                "37 bytes, got %d)" % len(data)
             )
             print("Data     :", data.hex())
             return
@@ -569,31 +570,32 @@ class blk(gr.basic_block):
         pubkey = data[5:37]
         node_hash = pubkey[0]
 
-        # Spara nyckeln även om vi inte känner namnet ännu - kan
-        # bli användbart senare, och stärker uppslag i known_nodes
-        # (som annars bara byggs upp via Advert-paket).
+        # Remember the key even if we don't know the name yet -
+        # may be useful later, and strengthens lookups in
+        # known_nodes (which is otherwise only built up via
+        # Advert packets).
         self.known_pubkeys[node_hash] = pubkey.hex()
 
-        print("  -> DISCOVER_RESP (svar på 'vem finns här'-fråga)")
+        print("  -> DISCOVER_RESP (reply to a 'who's here' query)")
         print("Tag        : 0x%08X" % tag)
         print("Reserved   : 0x%02X" % reserved)
         print("Public Key : %s" % pubkey.hex())
-        print("Nod-hash   :", self._fmt_hash(node_hash))
+        print("Node hash  :", self._fmt_hash(node_hash))
 
     # ---------------------------------------------------------
-    # DISCOVER_REQ: bästa tolkning enligt tillgänglig
-    # dokumentation + byte-för-byte-jämförelse mot två riktiga
-    # paket (identisk layout i båda):
+    # DISCOVER_REQ: best-effort interpretation based on
+    # available documentation + byte-for-byte comparison
+    # against two real packets (identical layout in both):
     #   type_filter(1) + tag(4, LE) + reserved(4)
-    # Exakt semantik för type_filter är inte 100% bekräftad -
-    # visas därför som rå hex snarare än en tolkad etikett.
+    # The exact semantics of type_filter are not 100% confirmed -
+    # shown as raw hex rather than an interpreted label.
     # ---------------------------------------------------------
     def _handle_discover_req(self, data):
 
         if len(data) < 9:
             print(
-                "För kort för DISCOVER_REQ (förväntade minst 9 "
-                "byte, fick %d)" % len(data)
+                "Too short for DISCOVER_REQ (expected at least "
+                "9 bytes, got %d)" % len(data)
             )
             print("Data     :", data.hex())
             return
@@ -602,20 +604,20 @@ class blk(gr.basic_block):
         tag = struct.unpack("<I", data[1:5])[0]
         reserved = data[5:9]
 
-        print("  -> DISCOVER_REQ ('vem finns här'-fråga)")
+        print("  -> DISCOVER_REQ ('who's here' query)")
         print("Type filter : 0x%02X" % type_filter)
         print("Tag         : 0x%08X" % tag)
         print("Reserved    :", reserved.hex())
 
     # ---------------------------------------------------------
-    # Trace: spårar en väg genom mesh-nätet och samlar SNR per
-    # hopp. Helt okrypterat.
+    # Trace: traces a path through the mesh network and
+    # collects SNR per hop. Always cleartext.
     #   tag(4, LE) + auth_code(4, LE) + flags(1) + path_hashes(rest)
     # ---------------------------------------------------------
     def _handle_trace(self, payload):
 
         if len(payload) < 9:
-            print("För kort för TRACE:", len(payload))
+            print("Too short for TRACE:", len(payload))
             return
 
         tag = struct.unpack("<I", payload[0:4])[0]
@@ -633,12 +635,12 @@ class blk(gr.basic_block):
         print("Auth code  : 0x%08X" % auth_code)
         print("Flags      : 0x%02X" % flags)
         if hop_list:
-            print("Väg hittills (nod-hashar):", " -> ".join(hop_list))
+            print("Path so far (node-hashes):", " -> ".join(hop_list))
         else:
-            print("Väg hittills: (tom, spårningen börjar här)")
+            print("Path so far: (empty, trace starts here)")
 
     # ---------------------------------------------------------
-    # Huvudhanterare
+    # Main handler
     # ---------------------------------------------------------
     def handle_msg(self, msg):
 
@@ -662,7 +664,7 @@ class blk(gr.basic_block):
             print("HEX:", data.hex(" "))
 
             if len(data) < 2:
-                print("För kort för att ens innehålla header + path_len")
+                print("Too short to even contain header + path_len")
                 return
 
             # -------------------------------------------------
@@ -676,10 +678,10 @@ class blk(gr.basic_block):
             route_type = header & 0x03
 
             route_name = ROUTE_TYPE_NAMES.get(
-                route_type, "OKÄND(0x%X)" % route_type
+                route_type, "UNKNOWN(0x%X)" % route_type
             )
             payload_name = PAYLOAD_TYPE_NAMES.get(
-                payload_type, "OKÄND(0x%X)" % payload_type
+                payload_type, "UNKNOWN(0x%X)" % payload_type
             )
 
             print("Header:       0x%02X" % header)
@@ -690,7 +692,7 @@ class blk(gr.basic_block):
             offset = 1
 
             # -------------------------------------------------
-            # Transport codes (bara för *_TRANSPORT_* route types)
+            # Transport codes (only for *_TRANSPORT_* route types)
             # -------------------------------------------------
 
             has_transport = route_type in (
@@ -701,7 +703,7 @@ class blk(gr.basic_block):
             if has_transport:
 
                 if len(data) < offset + 4:
-                    print("För kort för transport codes")
+                    print("Too short for transport codes")
                     return
 
                 transport_codes = data[offset:offset + 4]
@@ -710,11 +712,11 @@ class blk(gr.basic_block):
                 print("Transport codes:", transport_codes.hex())
 
             # -------------------------------------------------
-            # Path length + path (nod-hashar för varje hopp)
+            # Path length + path (node-hashes for each hop)
             # -------------------------------------------------
 
             if len(data) < offset + 1:
-                print("För kort för path_len-byten")
+                print("Too short for the path_len byte")
                 return
 
             path_len_byte = data[offset]
@@ -726,12 +728,12 @@ class blk(gr.basic_block):
 
             print(
                 "Path_len byte: 0x%02X  "
-                "(hash_size=%d byte/hopp, hash_count=%d hopp)"
+                "(hash_size=%d bytes/hop, hash_count=%d hops)"
                 % (path_len_byte, hash_size, hash_count)
             )
 
             if len(data) < offset + path_bytes_len:
-                print("För kort för path-fältet")
+                print("Too short for the path field")
                 return
 
             path_bytes = data[offset:offset + path_bytes_len]
@@ -744,15 +746,15 @@ class blk(gr.basic_block):
 
             if hops:
                 print(
-                    "Path (hopp, äldst -> närmast):",
+                    "Path (hops, oldest -> nearest):",
                     " -> ".join(hops)
                 )
-                print("Mottaget via (senaste hoppet):", hops[-1])
+                print("Received via (most recent hop):", hops[-1])
             else:
-                print("Path: tom (mottaget direkt, 0 hopp)")
+                print("Path: empty (received directly, 0 hops)")
 
             # -------------------------------------------------
-            # Payload - avkodas olika beroende på typ
+            # Payload - decoded differently depending on type
             # -------------------------------------------------
 
             payload = data[offset:]
@@ -788,8 +790,8 @@ class blk(gr.basic_block):
 
             else:
                 print(
-                    "Payload type %s stöds inte för detaljerad "
-                    "parsning ännu." % payload_name
+                    "Payload type %s is not yet supported for "
+                    "detailed parsing." % payload_name
                 )
 
         except Exception as e:
